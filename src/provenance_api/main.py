@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 
 from provenance_api import __version__
@@ -8,7 +9,7 @@ from provenance_api.config import Settings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.errors import install_error_handling
 from provenance_api.ml.model import Classifier
-from provenance_api.routes import admin, api_keys, auth, classify, health
+from provenance_api.routes import admin, api_keys, auth, classify, health, jobs
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -21,7 +22,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.classifier = Classifier.load()
         engine = create_engine(settings.database_url)
         app.state.session_factory = create_session_factory(engine)
+        app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
         yield
+        await app.state.queue.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -36,5 +39,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(api_keys.router)
     app.include_router(classify.router)
+    app.include_router(jobs.router)
     app.include_router(admin.router)
     return app
