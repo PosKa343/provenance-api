@@ -13,7 +13,7 @@ COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
 # Bake the NLTK data into the image so the container needs no network at runtime.
-RUN /app/.venv/bin/python -m provenance_api.ml.nltk_data /app/nltk_data
+RUN /app/.venv/bin/provenance-api nltk-data /app/nltk_data
 
 
 # Runtime stage: only the virtualenv, NLTK data and migrations. No uv, no build tools.

@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
       - name: Download NLTK data
-        run: uv run python -m provenance_api.ml.nltk_data
+        run: uv run provenance-api nltk-data
       - name: Lint
         run: uv run ruff check .
       - name: Format check

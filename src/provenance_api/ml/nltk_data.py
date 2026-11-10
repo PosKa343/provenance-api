@@ -1,9 +1,4 @@
-"""The NLTK data files feature extraction needs, and a command to fetch them.
-
-Usage: python -m provenance_api.ml.nltk_data [target_directory]
-"""
-
-import sys
+"""The NLTK data files feature extraction needs. Fetch them with `provenance-api nltk-data`."""
 
 import nltk
 
@@ -25,7 +20,7 @@ def ensure_available() -> None:
     missing = [package for path, package in REQUIRED_RESOURCES.items() if not _is_installed(path)]
     if missing:
         raise MissingNltkDataError(
-            f"Missing NLTK data: {', '.join(missing)}. Run: python -m provenance_api.ml.nltk_data"
+            f"Missing NLTK data: {', '.join(missing)}. Run: provenance-api nltk-data"
         )
 
 
@@ -41,7 +36,3 @@ def download(target_directory: str | None = None) -> None:
     for package in REQUIRED_RESOURCES.values():
         if not nltk.download(package, download_dir=target_directory, quiet=True):
             raise MissingNltkDataError(f"Could not download NLTK package {package}.")
-
-
-if __name__ == "__main__":
-    download(sys.argv[1] if len(sys.argv) > 1 else None)

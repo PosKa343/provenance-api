@@ -60,7 +60,7 @@ read, and `admin` can also list all users. There is no API for changing roles.
 Make the first admin from a shell:
 
 ```sh
-docker compose exec api python -m provenance_api.set_role me@example.com admin
+docker compose exec api provenance-api set-role me@example.com admin
 ```
 
 The server will not start without `PROVENANCE_JWT_SECRET` (at least 32
@@ -72,7 +72,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync                      # create .venv and install dependencies
-uv run python -m provenance_api.ml.nltk_data
+uv run provenance-api nltk-data
 uv run pre-commit install    # run checks on every commit
 uv run ruff check .          # lint
 uv run ruff format --check . # format check
@@ -101,7 +101,7 @@ extraction in `src/provenance_api/ml/features.py` is a port of the original
 code and gives the same 29 feature values on every row of the dataset (largest
 difference 8.7e-14). The dataset is in `data/`, with its sources and license.
 
-Retrain with `uv run python -m provenance_api.ml.train`. It writes the model
+Retrain with `uv run provenance-api train`. It writes the model
 and a `model.json` with the measured metrics to
 `src/provenance_api/ml/artifacts/`.
 
