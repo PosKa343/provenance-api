@@ -4,9 +4,13 @@ on:
   push:
   pull_request:
 
+# A newer push to a branch cancels that branch's older run. Runs on main are
+# never cancelled, and push and pull_request runs are kept in separate groups:
+# a pull_request run that starts just after its PR merges reports main as its
+# ref, and used to cancel the run on main.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
