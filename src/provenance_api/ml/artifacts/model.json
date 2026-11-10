@@ -1,0 +1,63 @@
+{
+  "model_version": "lr-d0618db559d4",
+  "trained_at": "2026-11-10",
+  "algorithm": "LogisticRegression(max_iter=1000, random_state=42), unscaled features",
+  "feature_names": [
+    "avg_word_length",
+    "avg_sentence_length",
+    "vocabulary_richness",
+    "unique_word_count",
+    "lexical_diversity",
+    "punctuation_ratio",
+    "comma_count",
+    "period_count",
+    "exclamation_count",
+    "question_count",
+    "semicolon_count",
+    "colon_count",
+    "sentence_length_std",
+    "paragraph_count",
+    "flesch_reading_ease",
+    "flesch_kincaid_grade",
+    "automated_readability_index",
+    "dale_chall_readability",
+    "gunning_fog",
+    "smog_index",
+    "noun_ratio",
+    "verb_ratio",
+    "adjective_ratio",
+    "adverb_ratio",
+    "pronoun_ratio",
+    "bigram_diversity",
+    "trigram_diversity",
+    "word_entropy",
+    "unique_word_ratio"
+  ],
+  "dataset": {
+    "file": "ai_detection_dataset.csv",
+    "sha256": "1eca724405d9eeb1379ef4a2fa28a94ac2a38dc265ac29091d02116c5f4415c9",
+    "rows": 632,
+    "human": 316,
+    "ai": 316
+  },
+  "metrics": {
+    "cv_folds": 5,
+    "cv_accuracy_per_fold": [
+      0.9606,
+      0.9843,
+      0.9841,
+      0.9683,
+      0.9683
+    ],
+    "cv_accuracy_mean": 0.9731,
+    "cv_accuracy_std": 0.0095,
+    "holdout_rows": 127,
+    "holdout_accuracy": 0.9921
+  },
+  "library_versions": {
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.4",
+    "nltk": "3.10.4",
+    "textstat": "0.7.13"
+  }
+}
