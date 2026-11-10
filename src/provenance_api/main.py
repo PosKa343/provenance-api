@@ -5,12 +5,22 @@ from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 
 from provenance_api import __version__
+from provenance_api.billing import gateway_from_settings
 from provenance_api.config import Settings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.errors import install_error_handling
 from provenance_api.limits import Limiter
 from provenance_api.ml.model import Classifier
-from provenance_api.routes import admin, api_keys, auth, classify, health, jobs, usage
+from provenance_api.routes import (
+    admin,
+    api_keys,
+    auth,
+    billing,
+    classify,
+    health,
+    jobs,
+    usage,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -36,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.billing = gateway_from_settings(settings)
     install_error_handling(app)
     app.include_router(health.router)
     app.include_router(auth.router)
@@ -43,5 +54,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(classify.router)
     app.include_router(jobs.router)
     app.include_router(usage.router)
+    app.include_router(billing.router)
     app.include_router(admin.router)
     return app

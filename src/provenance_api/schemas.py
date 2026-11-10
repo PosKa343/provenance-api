@@ -174,3 +174,11 @@ class UsageDay(BaseModel):
 
 class UsageOut(BaseModel):
     days: list[UsageDay] = Field(description="Days with usage, newest first. Dates are UTC.")
+
+
+class CheckoutOut(BaseModel):
+    checkout_url: str = Field(description="Open this page to pay. Test card: 4242 4242 4242 4242.")
+
+
+class WebhookOut(BaseModel):
+    status: Literal["processed", "already_processed"]

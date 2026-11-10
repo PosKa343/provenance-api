@@ -8,6 +8,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from provenance_api.billing import BillingGateway
 from provenance_api.config import Settings
 from provenance_api.errors import forbidden, unauthorized
 from provenance_api.limits import Limiter
@@ -48,11 +49,17 @@ def get_limiter(request: Request) -> Limiter:
     return limiter
 
 
+def get_billing(request: Request) -> BillingGateway | None:
+    billing: BillingGateway | None = request.app.state.billing
+    return billing
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClassifierDep = Annotated[Classifier, Depends(get_classifier)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 QueueDep = Annotated[ArqRedis, Depends(get_queue)]
 LimiterDep = Annotated[Limiter, Depends(get_limiter)]
+BillingDep = Annotated[BillingGateway | None, Depends(get_billing)]
 
 
 async def get_current_user(
