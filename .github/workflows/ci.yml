@@ -46,12 +46,12 @@ jobs:
           done
           docker compose logs
           exit 1
-      - name: Register, log in, create a key and classify through the running stack
+      - name: Register, log in, classify and run a batch job through the running stack
         run: python3 scripts/smoke_test.py http://localhost:8000
-      - name: Check the prediction was stored
+      - name: Check the predictions were stored (one single, two from the batch)
         run: |
           count=$(docker compose exec -T postgres psql -U provenance -d provenance -tAc 'SELECT count(*) FROM predictions')
-          test "$count" = "1"
+          test "$count" = "3"
       - name: Check the container does not run as root
         run: test "$(docker compose exec -T api id -u)" != "0"
       - name: Logs on failure

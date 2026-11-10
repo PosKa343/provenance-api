@@ -1,4 +1,4 @@
-"""Walk the main path of a running API: register, log in, create a key, classify.
+"""Walk the main path of a running API: register, log in, create a key, classify, run a batch.
 
 Usage: python scripts/smoke_test.py [base_url]
 Uses only the standard library, so it runs anywhere Python does.
@@ -6,6 +6,7 @@ Uses only the standard library, so it runs anywhere Python does.
 
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -60,6 +61,24 @@ def main() -> None:
     status, prediction = call("POST", "/v1/classify", text, **{"X-API-Key": created["key"]})
     expect("classify with the key", status, 200)
     expect("label is human or ai", prediction["label"] in ("human", "ai"), True)
+
+    key = {"X-API-Key": created["key"]}
+    batch = {"texts": [text["text"], "Rain fell all night. The river rose by morning."]}
+    status, job = call("POST", "/v1/jobs", batch, **key, **{"Idempotency-Key": "smoke-1"})
+    expect("submit a batch job", status, 202)
+
+    status, replay = call("POST", "/v1/jobs", batch, **key, **{"Idempotency-Key": "smoke-1"})
+    expect("resubmitting with the same key returns the same job", replay["id"], job["id"])
+
+    for _ in range(60):
+        status, job = call("GET", f"/v1/jobs/{job['id']}", **key)
+        if job["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(0.5)
+    expect("the worker finishes the job", job["status"], "succeeded")
+
+    status, results = call("GET", f"/v1/jobs/{job['id']}/results", **key)
+    expect("the job has one result per text", len(results["items"]), 2)
 
     status, _ = call("DELETE", f"/v1/api-keys/{created['id']}", **token)
     expect("revoke the key", status, 204)

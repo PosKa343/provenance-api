@@ -16,12 +16,23 @@ services:
       timeout: 3s
       retries: 15
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
   # Runs the Alembic migrations once, then exits. The API waits for it.
   migrate:
     build: .
     command: ["alembic", "upgrade", "head"]
     environment: &app_environment
       PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
+      PROVENANCE_REDIS_URL: redis://redis:6379
       # Local development only. Set a real secret anywhere else.
       PROVENANCE_JWT_SECRET: local-development-secret-do-not-use-elsewhere
     depends_on:
@@ -36,11 +47,24 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Same image as the API, different command: takes batch jobs off the queue.
+  worker:
+    build: .
+    command: ["provenance-api", "worker"]
+    environment: *app_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
