@@ -47,7 +47,9 @@ jobs:
           docker compose logs
           exit 1
       - name: Register, log in, classify and run a batch job through the running stack
-        run: python3 scripts/smoke_test.py http://localhost:8000
+        run: |
+          python3 scripts/smoke_test.py http://localhost:8000 \
+            --upgrade-command 'docker compose exec -T api provenance-api set-plan {email} pro'
       - name: Check the predictions were stored (one single, two from the batch)
         run: |
           count=$(docker compose exec -T postgres psql -U provenance -d provenance -tAc 'SELECT count(*) FROM predictions')
