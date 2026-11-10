@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Annotated
 
+from arq.connections import ArqRedis
 from fastapi import Depends, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -36,9 +37,15 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def get_queue(request: Request) -> ArqRedis:
+    queue: ArqRedis = request.app.state.queue
+    return queue
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClassifierDep = Annotated[Classifier, Depends(get_classifier)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+QueueDep = Annotated[ArqRedis, Depends(get_queue)]
 
 
 async def get_current_user(

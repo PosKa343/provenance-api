@@ -3,15 +3,17 @@
 import argparse
 import asyncio
 import json
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from provenance_api.config import DatabaseSettings
+from provenance_api.config import BackendSettings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.ml import nltk_data
 from provenance_api.ml.train import ARTIFACT_DIR, DEFAULT_DATASET, train, write_artifacts
 from provenance_api.models import Role
 from provenance_api.set_role import set_role
+from provenance_api.worker import create_worker
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -52,6 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
     role_parser.add_argument("role", type=Role, choices=list(Role))
     role_parser.set_defaults(handler=_set_role)
 
+    worker_parser = commands.add_parser(
+        "worker", help="Run the background worker that scores batch jobs."
+    )
+    worker_parser.set_defaults(handler=_worker)
+
     return parser
 
 
@@ -78,7 +85,7 @@ def _nltk_data(args: argparse.Namespace) -> int:
 
 def _set_role(args: argparse.Namespace) -> int:
     async def run() -> bool:
-        engine = create_engine(DatabaseSettings().database_url)
+        engine = create_engine(BackendSettings().database_url)
         try:
             return await set_role(create_session_factory(engine), args.email, args.role)
         finally:
@@ -88,4 +95,10 @@ def _set_role(args: argparse.Namespace) -> int:
         print(f"No user with email {args.email}.")
         return 1
     print(f"{args.email} is now {args.role.value}.")
+    return 0
+
+
+def _worker(args: argparse.Namespace) -> int:
+    logging.basicConfig(level=logging.INFO)
+    create_worker(BackendSettings()).run()
     return 0

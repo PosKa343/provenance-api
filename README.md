@@ -3,8 +3,9 @@
 A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
-**Status:** accounts, API keys, roles and `POST /v1/classify` work end to end
-with PostgreSQL. There is no rate limiting, batch processing or billing yet.
+**Status:** accounts, API keys, roles, `POST /v1/classify` and background batch
+jobs work end to end with PostgreSQL and Redis. There is no rate limiting or
+billing yet.
 
 ## Quickstart
 
@@ -14,8 +15,8 @@ Requires Docker.
 docker compose up --build
 ```
 
-This starts PostgreSQL, applies the database migrations, and serves the API on
-port 8000. Then create an account, log in, create an API key and classify a
+This starts PostgreSQL and Redis, applies the database migrations, and runs the
+API on port 8000 plus a background worker. Then create an account, log in, create an API key and classify a
 text:
 
 ```sh
@@ -42,6 +43,36 @@ curl http://localhost:8000/v1/classify \
 
 `python3 scripts/smoke_test.py` runs the same path in one command.
 Interactive API docs are at http://localhost:8000/docs.
+
+## Batch jobs
+
+`POST /v1/jobs` takes a list of texts and returns at once with a job id. A
+separate worker process scores the texts; poll `GET /v1/jobs/{id}` for
+`queued`, `running`, `succeeded` or `failed`, and read
+`GET /v1/jobs/{id}/results` for the results in submission order.
+
+```sh
+curl http://localhost:8000/v1/jobs \
+  --header 'Content-Type: application/json' \
+  --header 'X-API-Key: <key>' \
+  --header 'Idempotency-Key: my-batch-1' \
+  --data '{"texts": ["First text to score.", "Second text to score."]}'
+```
+
+- **Retrying is safe.** Send the same `Idempotency-Key` again and you get the
+  first job back, not a second one. The same key with different texts is a 409.
+- **Failures are retried.** A job is attempted three times with a growing
+  delay, then marked `failed`.
+- **Work is not repeated or duplicated.** Progress is saved every ten texts, and
+  a retry skips texts that already have a result.
+- **Texts are not stored.** They wait in Redis until the worker has scored
+  them, then are deleted (or expire after 24 hours if never picked up). They
+  are kept out of the queue entry and out of logs. PostgreSQL keeps only
+  hashes and results.
+
+Known limits: if the API process dies between saving a job and queueing it,
+the job stays `queued`; if a worker is killed during its last attempt, the job
+stays `running`. Both need a periodic sweeper, which is not built yet.
 
 ## Authentication
 
@@ -80,17 +111,19 @@ uv run mypy                  # type check (strict)
 uv run pytest                # tests
 ```
 
-The tests run against a real PostgreSQL. By default they start a throwaway
-container, so Docker must be running and your user must be allowed to use it.
-To use an existing database instead, set `PROVENANCE_TEST_DATABASE_URL`.
+The tests run against a real PostgreSQL and Redis. By default they start
+throwaway containers, so Docker must be running and your user must be allowed to use it.
+To use existing servers instead, set `PROVENANCE_TEST_DATABASE_URL` and
+`PROVENANCE_TEST_REDIS_URL`.
 
 To run the API outside Docker:
 
 ```sh
-docker compose up --detach postgres
+docker compose up --detach postgres redis
 uv run alembic upgrade head
 export PROVENANCE_JWT_SECRET=local-development-secret-do-not-use-elsewhere
 uv run uvicorn provenance_api.main:create_app --factory --reload
+uv run provenance-api worker   # in a second terminal
 ```
 
 ## Model provenance

@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from provenance_api.ml.model import Label
-from provenance_api.models import Plan, Role
+from provenance_api.models import JobStatus, Plan, Role
 
 
 class ClassifyRequest(BaseModel):
@@ -112,3 +112,45 @@ class ApiKeyCreated(ApiKeyOut):
 class UserPage(BaseModel):
     items: list[UserOut]
     next_cursor: str | None = Field(description="Pass as ?cursor= to get the next page.")
+
+
+class JobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    texts: list[str] = Field(min_length=1, description="The texts to classify, in order.")
+
+    @field_validator("texts")
+    @classmethod
+    def texts_have_content(cls, value: list[str]) -> list[str]:
+        for position, text in enumerate(value):
+            if not text.strip():
+                raise ValueError(f"texts[{position}] must contain a non-whitespace character")
+        return value
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: JobStatus
+    total: int = Field(description="Number of texts submitted.")
+    processed: int = Field(description="Number of texts scored so far.")
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class JobResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    position: int = Field(description="Index of the text in the submitted list.")
+    input_sha256: str
+    label: Label
+    probability_ai: float
+    model_version: str
+
+
+class JobResultsPage(BaseModel):
+    items: list[JobResult]
+    next_cursor: int | None = Field(description="Pass as ?cursor= to get the next page.")

@@ -6,6 +6,7 @@ import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from arq.connections import ArqRedis, RedisSettings, create_pool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -54,10 +55,34 @@ def _migrate(url: str) -> None:
 
 
 @pytest.fixture(scope="session")
-async def client(database_url: str) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(
-        Settings(database_url=database_url, max_text_chars=5_000, jwt_secret=TEST_JWT_SECRET)
+def redis_url() -> Iterator[str]:
+    """A real Redis. Uses PROVENANCE_TEST_REDIS_URL if set, otherwise a throwaway container."""
+    configured = os.environ.get("PROVENANCE_TEST_REDIS_URL")
+    if configured:
+        yield configured
+        return
+
+    from testcontainers.redis import RedisContainer
+
+    with RedisContainer("redis:7-alpine") as redis:
+        yield f"redis://{redis.get_container_host_ip()}:{redis.get_exposed_port(6379)}"
+
+
+@pytest.fixture(scope="session")
+def settings(database_url: str, redis_url: str) -> Settings:
+    return Settings(
+        database_url=database_url,
+        redis_url=redis_url,
+        jwt_secret=TEST_JWT_SECRET,
+        max_text_chars=5_000,
+        max_batch_texts=5,
+        job_retry_backoff_seconds=0,
     )
+
+
+@pytest.fixture(scope="session")
+async def client(settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(settings)
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
@@ -73,7 +98,7 @@ async def db(database_url: str) -> AsyncIterator[AsyncEngine]:
     """An engine for inspecting the database, starting from empty tables."""
     engine = create_async_engine(database_url)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE predictions, api_keys, users CASCADE"))
+        await connection.execute(text("TRUNCATE predictions, jobs, api_keys, users CASCADE"))
     yield engine
     await engine.dispose()
 
@@ -108,3 +133,12 @@ async def member(make_user: MakeUser) -> Headers:
 async def api_key(client: httpx.AsyncClient, member: Headers) -> Headers:
     created = await client.post("/v1/api-keys", json={"name": "test"}, headers=member)
     return {"X-API-Key": created.json()["key"]}
+
+
+@pytest.fixture
+async def queue(redis_url: str) -> AsyncIterator[ArqRedis]:
+    """A connection to the job queue, emptied before each test."""
+    redis = await create_pool(RedisSettings.from_dsn(redis_url))
+    await redis.flushdb()
+    yield redis
+    await redis.aclose()
