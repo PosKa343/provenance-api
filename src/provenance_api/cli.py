@@ -6,13 +6,14 @@ import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from provenance_api.config import BackendSettings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.ml import nltk_data
 from provenance_api.ml.train import ARTIFACT_DIR, DEFAULT_DATASET, train, write_artifacts
-from provenance_api.models import Role
-from provenance_api.set_role import set_role
+from provenance_api.models import Plan, Role
+from provenance_api.set_role import set_plan, set_role
 from provenance_api.worker import create_worker
 
 
@@ -54,6 +55,13 @@ def _build_parser() -> argparse.ArgumentParser:
     role_parser.add_argument("role", type=Role, choices=list(Role))
     role_parser.set_defaults(handler=_set_role)
 
+    plan_parser = commands.add_parser(
+        "set-plan", help="Change a user's plan by hand, without going through billing."
+    )
+    plan_parser.add_argument("email")
+    plan_parser.add_argument("plan", type=Plan, choices=list(Plan))
+    plan_parser.set_defaults(handler=_set_plan)
+
     worker_parser = commands.add_parser(
         "worker", help="Run the background worker that scores batch jobs."
     )
@@ -84,17 +92,26 @@ def _nltk_data(args: argparse.Namespace) -> int:
 
 
 def _set_role(args: argparse.Namespace) -> int:
+    return _update_user(args.email, f"is now {args.role.value}", set_role, args.role)
+
+
+def _set_plan(args: argparse.Namespace) -> int:
+    return _update_user(args.email, f"is now on the {args.plan.value} plan", set_plan, args.plan)
+
+
+def _update_user(email: str, outcome: str, change: Any, value: Any) -> int:
     async def run() -> bool:
         engine = create_engine(BackendSettings().database_url)
         try:
-            return await set_role(create_session_factory(engine), args.email, args.role)
+            found: bool = await change(create_session_factory(engine), email, value)
+            return found
         finally:
             await engine.dispose()
 
     if not asyncio.run(run()):
-        print(f"No user with email {args.email}.")
+        print(f"No user with email {email}.")
         return 1
-    print(f"{args.email} is now {args.role.value}.")
+    print(f"{email} {outcome}.")
     return 0
 
 

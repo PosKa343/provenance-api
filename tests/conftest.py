@@ -77,6 +77,11 @@ def settings(database_url: str, redis_url: str) -> Settings:
         max_text_chars=5_000,
         max_batch_texts=5,
         job_retry_backoff_seconds=0,
+        # High enough that only the tests about limits ever reach them.
+        free_daily_quota=1_000,
+        free_burst=1_000,
+        pro_daily_quota=1_000,
+        pro_burst=1_000,
     )
 
 
@@ -94,11 +99,16 @@ async def client(settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.fixture
-async def db(database_url: str) -> AsyncIterator[AsyncEngine]:
-    """An engine for inspecting the database, starting from empty tables."""
+async def db(database_url: str, redis_url: str) -> AsyncIterator[AsyncEngine]:
+    """An engine for inspecting the database. Starts from empty tables and an empty Redis."""
+    redis = await create_pool(RedisSettings.from_dsn(redis_url))
+    await redis.flushdb()
+    await redis.aclose()
     engine = create_async_engine(database_url)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE predictions, jobs, api_keys, users CASCADE"))
+        await connection.execute(
+            text("TRUNCATE usage_events, predictions, jobs, api_keys, users CASCADE")
+        )
     yield engine
     await engine.dispose()
 
@@ -107,17 +117,18 @@ async def db(database_url: str) -> AsyncIterator[AsyncEngine]:
 def make_user(client: httpx.AsyncClient, db: AsyncEngine) -> MakeUser:
     """Register a user through the API and return headers carrying their access token."""
 
-    async def make(email: str = "member@example.com", role: str = "member") -> Headers:
+    async def make(
+        email: str = "member@example.com", role: str = "member", plan: str = "free"
+    ) -> Headers:
         registered = await client.post(
             "/v1/auth/register", json={"email": email, "password": PASSWORD}
         )
         assert registered.status_code == 201, registered.text
-        if role != "member":
-            async with db.begin() as connection:
-                await connection.execute(
-                    text("UPDATE users SET role = :role WHERE email = :email"),
-                    {"role": role, "email": email},
-                )
+        async with db.begin() as connection:
+            await connection.execute(
+                text("UPDATE users SET role = :role, plan = :plan WHERE email = :email"),
+                {"role": role, "plan": plan, "email": email},
+            )
         login = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
         return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -142,3 +153,14 @@ async def queue(redis_url: str) -> AsyncIterator[ArqRedis]:
     await redis.flushdb()
     yield redis
     await redis.aclose()
+
+
+@pytest.fixture
+async def pro(make_user: MakeUser) -> Headers:
+    return await make_user("pro@example.com", plan="pro")
+
+
+@pytest.fixture
+async def pro_api_key(client: httpx.AsyncClient, pro: Headers) -> Headers:
+    created = await client.post("/v1/api-keys", json={"name": "test"}, headers=pro)
+    return {"X-API-Key": created.json()["key"]}

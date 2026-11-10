@@ -3,9 +3,15 @@ import hashlib
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 
-from provenance_api.dependencies import ApiKeyUser, ClassifierDep, SessionDep, SettingsDep
+from provenance_api.dependencies import (
+    ApiKeyUser,
+    ClassifierDep,
+    LimiterDep,
+    SessionDep,
+    SettingsDep,
+)
 from provenance_api.errors import ApiError
-from provenance_api.models import PredictionRecord
+from provenance_api.models import PredictionRecord, UsageEvent, UsageKind
 from provenance_api.schemas import (
     ClassifyRequest,
     ClassifyResponse,
@@ -24,6 +30,7 @@ router = APIRouter(prefix="/v1", tags=["classify"])
         401: {"model": ErrorEnvelope},
         413: {"model": ErrorEnvelope},
         422: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope, "description": "Rate limit or daily quota reached."},
     },
 )
 async def classify(
@@ -32,11 +39,15 @@ async def classify(
     classifier: ClassifierDep,
     session: SessionDep,
     settings: SettingsDep,
+    limiter: LimiterDep,
 ) -> ClassifyResponse:
     if len(body.text) > settings.max_text_chars:
         raise ApiError(
             413, "text_too_long", f"text must be at most {settings.max_text_chars} characters."
         )
+
+    # Charged here, after validation, so a rejected request costs no quota.
+    await limiter.consume_quota(user.id, 1, settings.limits_for(user.plan))
 
     # Feature extraction and scoring are CPU-bound. Running them here would
     # block the event loop for every other request, so they go to a worker thread.
@@ -50,6 +61,7 @@ async def classify(
         model_version=prediction.model_version,
     )
     session.add(record)
+    session.add(UsageEvent(user_id=user.id, kind=UsageKind.CLASSIFY, units=1))
     await session.commit()
 
     return ClassifyResponse(

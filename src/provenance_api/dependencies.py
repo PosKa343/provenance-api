@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from provenance_api.config import Settings
 from provenance_api.errors import forbidden, unauthorized
+from provenance_api.limits import Limiter
 from provenance_api.ml.model import Classifier
 from provenance_api.models import ApiKey, Role, User
 from provenance_api.security import InvalidTokenError, decode_access_token, hash_api_key
@@ -42,10 +43,16 @@ def get_queue(request: Request) -> ArqRedis:
     return queue
 
 
+def get_limiter(request: Request) -> Limiter:
+    limiter: Limiter = request.app.state.limiter
+    return limiter
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClassifierDep = Annotated[Classifier, Depends(get_classifier)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 QueueDep = Annotated[ArqRedis, Depends(get_queue)]
+LimiterDep = Annotated[Limiter, Depends(get_limiter)]
 
 
 async def get_current_user(
@@ -86,9 +93,12 @@ def require_role(*allowed: Role) -> Callable[[User], Awaitable[User]]:
 
 
 async def get_api_key_user(
-    key: Annotated[str | None, Depends(_api_key_scheme)], session: SessionDep
+    key: Annotated[str | None, Depends(_api_key_scheme)],
+    session: SessionDep,
+    limiter: LimiterDep,
+    settings: SettingsDep,
 ) -> User:
-    """The owner of a valid, unrevoked API key. Used by machine endpoints."""
+    """The owner of a valid, unrevoked API key, after a rate-limit check for that key."""
     if key is None:
         raise unauthorized(f"Missing {API_KEY_HEADER} header.", "ApiKey")
 
@@ -103,6 +113,8 @@ async def get_api_key_user(
         raise unauthorized("Invalid or revoked API key.", "ApiKey")
 
     api_key, user = row
+    # Checked after authentication, so an invalid key cannot drain a real key's bucket.
+    await limiter.check_rate(api_key.id, settings.limits_for(user.plan))
     api_key.last_used_at = datetime.now(UTC)
     await session.commit()
     return user

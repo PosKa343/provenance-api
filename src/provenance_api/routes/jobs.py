@@ -9,9 +9,15 @@ from fastapi import APIRouter, Header, Query, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from provenance_api.dependencies import ApiKeyUser, QueueDep, SessionDep, SettingsDep
-from provenance_api.errors import ApiError, not_found
-from provenance_api.models import Job, JobStatus, PredictionRecord, User
+from provenance_api.dependencies import (
+    ApiKeyUser,
+    LimiterDep,
+    QueueDep,
+    SessionDep,
+    SettingsDep,
+)
+from provenance_api.errors import ApiError, forbidden, not_found
+from provenance_api.models import Job, JobStatus, PredictionRecord, UsageEvent, UsageKind, User
 from provenance_api.schemas import ErrorEnvelope, JobCreate, JobOut, JobResult, JobResultsPage
 from provenance_api.worker import enqueue_scoring
 
@@ -20,7 +26,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/v1/jobs",
     tags=["jobs"],
-    responses={401: {"model": ErrorEnvelope}},
+    responses={
+        401: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope, "description": "Rate limit or daily quota reached."},
+    },
 )
 
 
@@ -31,6 +40,7 @@ router = APIRouter(
     summary="Submit a batch of texts to classify in the background",
     responses={
         200: {"model": JobOut, "description": "This Idempotency-Key was already used; same job."},
+        403: {"model": ErrorEnvelope, "description": "Batch jobs need the Pro plan."},
         409: {"model": ErrorEnvelope},
         413: {"model": ErrorEnvelope},
         422: {"model": ErrorEnvelope},
@@ -44,6 +54,7 @@ async def submit_job(
     session: SessionDep,
     queue: QueueDep,
     settings: SettingsDep,
+    limiter: LimiterDep,
     idempotency_key: Annotated[
         str | None,
         Header(
@@ -52,6 +63,9 @@ async def submit_job(
         ),
     ] = None,
 ) -> Job:
+    limits = settings.limits_for(user.plan)
+    if not limits.batch_jobs:
+        raise forbidden("Batch jobs need the Pro plan.")
     if len(body.texts) > settings.max_batch_texts:
         raise ApiError(
             413, "batch_too_large", f"A job can hold at most {settings.max_batch_texts} texts."
@@ -65,6 +79,9 @@ async def submit_job(
     # Read now: a rollback below expires the loaded user, and reading an expired
     # attribute would need a database call the async session cannot make implicitly.
     user_id = user.id
+    units = len(body.texts)
+    # A batch costs one unit per text, so it cannot be used to get around the quota.
+    await limiter.consume_quota(user_id, units, limits)
     job = Job(
         user_id=user_id,
         idempotency_key=idempotency_key,
@@ -72,11 +89,14 @@ async def submit_job(
         total=len(body.texts),
     )
     session.add(job)
+    # Same transaction as the job: a resubmission rolls both back and is not charged twice.
+    session.add(UsageEvent(user_id=user_id, kind=UsageKind.BATCH, units=units))
     try:
         await session.commit()
     except IntegrityError:
         # The unique constraint on (user, key) fired: this key was used before.
         await session.rollback()
+        await limiter.refund_quota(user_id, units)
         existing = await _job_for_key(session, user_id, idempotency_key)
         if existing.request_sha256 != request_sha256:
             raise ApiError(
