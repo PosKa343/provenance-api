@@ -105,8 +105,13 @@ Stripe cannot reach `localhost`, so local webhooks go through the
 [Stripe CLI](https://docs.stripe.com/stripe-cli):
 
 ```sh
-stripe listen --forward-to localhost:8000/v1/billing/webhook
+stripe listen \
+  --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted \
+  --forward-to localhost:8000/v1/billing/webhook
 ```
+
+`stripe listen --print-secret` prints the `whsec_...` value for `.env`. Restart
+the stack after changing `.env`.
 
 There is no endpoint to cancel a subscription yet; cancel it in the Stripe
 dashboard and the webhook moves the user back to Free.
