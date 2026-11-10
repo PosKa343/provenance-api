@@ -1,6 +1,7 @@
 import anyio
 import httpx
 import pytest
+from fastapi import FastAPI
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -228,12 +229,12 @@ async def test_me_reports_plan_limit_and_todays_usage(
 
 
 async def test_requests_are_allowed_when_the_limit_store_is_down(
-    client: httpx.AsyncClient, api_key: Headers, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient, app: FastAPI, api_key: Headers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def down(*args: object, **kwargs: object) -> None:
         raise RedisConnectionError("redis is down")
 
-    limiter = client._transport.app.state.limiter  # type: ignore[attr-defined]
+    limiter = app.state.limiter
     monkeypatch.setattr(limiter, "_take_from_bucket", down)
     monkeypatch.setattr(limiter, "_consume_quota", down)
 

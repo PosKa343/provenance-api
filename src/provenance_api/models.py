@@ -51,6 +51,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(_string_enum(Role, "ck_users_role"), default=Role.MEMBER)
     plan: Mapped[Plan] = mapped_column(_string_enum(Plan, "ck_users_plan"), default=Plan.FREE)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # When Stripe created the newest billing event applied to this user. Stripe
+    # does not deliver events in order, so older ones are ignored.
+    billing_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -69,6 +73,18 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StripeEvent(Base):
+    """Every Stripe event already handled, so a redelivery is recognised and skipped."""
+
+    __tablename__ = "stripe_events"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    type: Mapped[str] = mapped_column(String(100))
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class UsageKind(StrEnum):

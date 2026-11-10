@@ -7,6 +7,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from arq.connections import ArqRedis, RedisSettings, create_pool
+from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -15,6 +16,7 @@ from provenance_api.main import create_app
 
 REPO_ROOT = Path(__file__).parent.parent
 TEST_JWT_SECRET = "test-only-secret-" + "0" * 32
+TEST_WEBHOOK_SECRET = "whsec_test_only"
 PASSWORD = "correct horse battery staple"
 
 Headers = dict[str, str]
@@ -71,6 +73,9 @@ def redis_url() -> Iterator[str]:
 @pytest.fixture(scope="session")
 def settings(database_url: str, redis_url: str) -> Settings:
     return Settings(
+        # A developer's .env may hold real Stripe test keys; tests must never read it.
+        _env_file=None,
+        stripe_webhook_secret=TEST_WEBHOOK_SECRET,
         database_url=database_url,
         redis_url=redis_url,
         jwt_secret=TEST_JWT_SECRET,
@@ -86,8 +91,12 @@ def settings(database_url: str, redis_url: str) -> Settings:
 
 
 @pytest.fixture(scope="session")
-async def client(settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(settings)
+def app(settings: Settings) -> FastAPI:
+    return create_app(settings)
+
+
+@pytest.fixture(scope="session")
+async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
@@ -107,7 +116,7 @@ async def db(database_url: str, redis_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(database_url)
     async with engine.begin() as connection:
         await connection.execute(
-            text("TRUNCATE usage_events, predictions, jobs, api_keys, users CASCADE")
+            text("TRUNCATE stripe_events, usage_events, predictions, jobs, api_keys, users CASCADE")
         )
     yield engine
     await engine.dispose()

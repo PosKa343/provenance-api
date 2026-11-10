@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +35,27 @@ class Settings(BackendSettings):
     # No default: the service must not start with a guessable signing key.
     jwt_secret: SecretStr = Field(min_length=32)
     access_token_minutes: int = 30
+
+    # Billing is optional: without these three the billing endpoints answer 503.
+    stripe_secret_key: SecretStr | None = None
+    stripe_webhook_secret: SecretStr | None = None
+    stripe_price_id: str | None = None
+    billing_success_url: str = "http://localhost:8000/docs"
+    billing_cancel_url: str = "http://localhost:8000/docs"
+
+    @field_validator("stripe_secret_key", "stripe_webhook_secret", "stripe_price_id", mode="before")
+    @classmethod
+    def empty_means_not_configured(cls, value: object) -> object:
+        # compose passes unset variables through as empty strings.
+        return None if value == "" else value
+
+    @field_validator("stripe_secret_key")
+    @classmethod
+    def only_test_mode_keys(cls, value: SecretStr | None) -> SecretStr | None:
+        # This project must never take real money, so a live key is a startup error.
+        if value is not None and not value.get_secret_value().startswith("sk_test_"):
+            raise ValueError("stripe_secret_key must be a test-mode key (sk_test_...)")
+        return value
 
     # Daily quota counts single classifications plus every text in a batch job.
     # Burst and refill describe the per-key token bucket.

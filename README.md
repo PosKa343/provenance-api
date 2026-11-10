@@ -4,8 +4,8 @@ A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
 **Status:** accounts, API keys, roles, `POST /v1/classify`, background batch
-jobs, rate limits and usage metering work end to end with PostgreSQL and Redis.
-There is no billing yet, so plans are changed from the command line.
+jobs, rate limits, usage metering and Stripe billing (test mode only) work end
+to end with PostgreSQL and Redis.
 
 ## Quickstart
 
@@ -60,7 +60,7 @@ Interactive API docs are at http://localhost:8000/docs.
 - `GET /v1/me` shows today's usage and limit; `GET /v1/usage` shows usage by day.
 
 All of these numbers are settings (`PROVENANCE_FREE_DAILY_QUOTA` and so on).
-Until billing exists, change a plan by hand:
+A plan changes through [billing](#billing-stripe-test-mode), or by hand:
 
 ```sh
 docker compose exec api provenance-api set-plan me@example.com pro
@@ -69,6 +69,47 @@ docker compose exec api provenance-api set-plan me@example.com pro
 Both limits live in Redis, so several API replicas share them. If Redis is
 unreachable the limits are not enforced: an outage should not take the API
 down. Login and registration are not rate limited yet.
+
+## Billing (Stripe, test mode)
+
+Billing uses Stripe in **test mode only**. No real money can move: the server
+refuses to start with a live key.
+
+- `POST /v1/billing/checkout` returns a Stripe Checkout page for the Pro plan.
+  Pay with the test card `4242 4242 4242 4242`, any future date, any CVC.
+- `POST /v1/billing/webhook` is called by Stripe. A completed checkout or an
+  active subscription moves the user to Pro; a cancelled or unpaid one moves
+  them back to Free.
+
+How the webhook stays correct:
+
+- **Signature.** Each request must carry a valid `Stripe-Signature` for the
+  exact body received, made with the webhook secret and less than five minutes
+  old. Anything else is a 400 and changes nothing.
+- **Idempotency.** Stripe may deliver an event more than once. Each event id is
+  stored in the same transaction as the plan change, so a repeat is
+  acknowledged and skipped.
+- **Ordering.** Stripe does not promise delivery order. An event older than the
+  last one applied to a user is recorded and ignored.
+
+To turn billing on, put these in a `.env` file (git-ignored) in the project
+folder. Without them the billing endpoints answer 503 and everything else works.
+
+```sh
+PROVENANCE_STRIPE_SECRET_KEY=sk_test_...
+PROVENANCE_STRIPE_PRICE_ID=price_...        # a recurring price for the Pro plan
+PROVENANCE_STRIPE_WEBHOOK_SECRET=whsec_...  # printed by `stripe listen`
+```
+
+Stripe cannot reach `localhost`, so local webhooks go through the
+[Stripe CLI](https://docs.stripe.com/stripe-cli):
+
+```sh
+stripe listen --forward-to localhost:8000/v1/billing/webhook
+```
+
+There is no endpoint to cancel a subscription yet; cancel it in the Stripe
+dashboard and the webhook moves the user back to Free.
 
 ## Batch jobs
 
