@@ -1,5 +1,6 @@
 import csv
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -73,3 +74,16 @@ def test_model_trained_on_other_features_is_rejected() -> None:
 
     with pytest.raises(ModelArtifactError):
         Classifier(estimator=None, metadata=metadata)
+
+
+def test_predictions_from_parallel_threads_match_serial_ones(classifier: Classifier) -> None:
+    """The API runs predict in a thread pool, so it must be safe to call concurrently."""
+    texts = [
+        f"Sentence number {i} is here. Another one follows it, {i} times over." for i in range(40)
+    ]
+    serial = [classifier.predict(text) for text in texts]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        parallel = list(pool.map(classifier.predict, texts))
+
+    assert parallel == serial

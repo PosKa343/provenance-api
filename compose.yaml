@@ -1,0 +1,44 @@
+# Local development stack. The credentials here are for local use only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: provenance
+      POSTGRES_PASSWORD: provenance
+      POSTGRES_DB: provenance
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U provenance -d provenance"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Runs the Alembic migrations once, then exits. The API waits for it.
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &app_environment
+      PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment: *app_environment
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
