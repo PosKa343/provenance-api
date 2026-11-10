@@ -65,13 +65,14 @@ def test_ngram_diversity_and_entropy_match_hand_computed_values() -> None:
 
 
 def test_part_of_speech_ratios() -> None:
-    features = extract_features("Dogs bark loudly.")
+    # Seven tokens: pronoun, adverb, verb, determiner, adjective, noun, full stop.
+    features = extract_features("She quickly opened the old door.")
 
-    assert features["noun_ratio"] == pytest.approx(1 / 4)
-    assert features["verb_ratio"] == pytest.approx(1 / 4)
-    assert features["adverb_ratio"] == pytest.approx(1 / 4)
-    assert features["adjective_ratio"] == 0
-    assert features["pronoun_ratio"] == 0
+    assert features["pronoun_ratio"] == pytest.approx(1 / 7)
+    assert features["adverb_ratio"] == pytest.approx(1 / 7)
+    assert features["verb_ratio"] == pytest.approx(1 / 7)
+    assert features["adjective_ratio"] == pytest.approx(1 / 7)
+    assert features["noun_ratio"] == pytest.approx(1 / 7)
 
 
 def test_readability_scores_separate_simple_from_dense_text() -> None:

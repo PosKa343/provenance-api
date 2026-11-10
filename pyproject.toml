@@ -55,3 +55,8 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.17.4",
 ]
+
+# These libraries ship no type information.
+[[tool.mypy.overrides]]
+module = ["nltk.*", "textstat.*", "sklearn.*", "joblib.*"]
+ignore_missing_imports = true
