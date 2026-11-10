@@ -65,8 +65,10 @@ curl http://localhost:8000/v1/jobs \
   delay, then marked `failed`.
 - **Work is not repeated or duplicated.** Progress is saved every ten texts, and
   a retry skips texts that already have a result.
-- **Texts are not stored.** They travel through Redis to the worker and are
-  removed when the job ends. PostgreSQL keeps only hashes and results.
+- **Texts are not stored.** They wait in Redis until the worker has scored
+  them, then are deleted (or expire after 24 hours if never picked up). They
+  are kept out of the queue entry and out of logs. PostgreSQL keeps only
+  hashes and results.
 
 Known limits: if the API process dies between saving a job and queueing it,
 the job stays `queued`; if a worker is killed during its last attempt, the job

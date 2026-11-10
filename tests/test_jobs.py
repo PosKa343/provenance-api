@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -107,8 +108,8 @@ async def test_texts_are_not_kept_in_postgres_or_redis_after_the_job(
         jobs = (await connection.execute(text("SELECT * FROM jobs"))).mappings().all()
     stored = [value for row in [*rows, *jobs] for value in row.values() if isinstance(value, str)]
     assert not any(t in value for t in TEXTS for value in stored)
-    assert [key for key in await queue.keys("arq:job:*")] == []
-    assert [key for key in await queue.keys("arq:result:*")] == []
+    # The worker's own health-check key holds counters, not job data.
+    assert [key for key in await queue.keys("*") if key != b"arq:queue:health-check"] == []
 
 
 async def test_retry_with_the_same_idempotency_key_returns_the_first_job(
@@ -174,6 +175,7 @@ async def test_job_fails_after_three_attempts_when_scoring_keeps_failing(
     client: httpx.AsyncClient,
     db: AsyncEngine,
     api_key: Headers,
+    queue: ArqRedis,
     run_worker: RunWorker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +197,7 @@ async def test_job_fails_after_three_attempts_when_scoring_keeps_failing(
     assert failed["finished_at"] is not None
     assert attempts == 3
     assert await count(db, "predictions") == 0
+    assert await queue.keys("provenance:job-texts:*") == []
 
 
 async def test_job_that_fails_once_is_retried_and_resumes_without_duplicates(
@@ -338,3 +341,47 @@ async def test_job_is_marked_failed_when_it_cannot_be_queued(
     async with db.connect() as connection:
         row = (await connection.execute(text("SELECT status, error FROM jobs"))).one()
     assert tuple(row) == ("failed", "The job could not be queued.")
+
+
+async def test_submitted_texts_never_appear_in_logs(
+    client: httpx.AsyncClient,
+    db: AsyncEngine,
+    api_key: Headers,
+    run_worker: RunWorker,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def explode(self: Classifier, text: str) -> Prediction:
+        raise RuntimeError(f"could not score: {text}")
+
+    caplog.set_level(logging.DEBUG)
+    await submit(client, api_key, TEXTS)
+    await run_worker()
+    await submit(client, api_key, TEXTS)
+    monkeypatch.setattr(Classifier, "predict", explode)
+    await run_worker()
+
+    logged = "\n".join(
+        record.getMessage() + str(record.exc_text or "") for record in caplog.records
+    )
+    assert "score_job" in logged
+    assert not any(t[:20] in logged for t in TEXTS)
+
+
+async def test_job_whose_texts_have_expired_is_marked_failed(
+    client: httpx.AsyncClient,
+    db: AsyncEngine,
+    api_key: Headers,
+    queue: ArqRedis,
+    run_worker: RunWorker,
+) -> None:
+    job = (await submit(client, api_key, TEXTS)).json()
+    await queue.delete(f"provenance:job-texts:{job['id']}")
+
+    await run_worker()
+
+    failed = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    assert (failed["status"], failed["error"]) == (
+        "failed",
+        "The submitted texts are no longer available.",
+    )

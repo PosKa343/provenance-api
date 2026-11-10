@@ -92,7 +92,7 @@ async def submit_job(
     except Exception:
         # The row is committed but nothing will ever process it, so say so
         # instead of leaving a job that looks queued forever.
-        logger.exception("Could not enqueue job %s.", job.id)
+        logger.exception("Could not enqueue job %s.", job.id)  # a Redis error; holds no text
         job.status = JobStatus.FAILED
         job.error = "The job could not be queued."
         job.finished_at = datetime.now(UTC)
