@@ -8,7 +8,7 @@ from provenance_api.config import Settings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.errors import install_error_handling
 from provenance_api.ml.model import Classifier
-from provenance_api.routes import classify, health
+from provenance_api.routes import admin, api_keys, auth, classify, health
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,8 +33,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     install_error_handling(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(api_keys.router)
     app.include_router(classify.router)
+    app.include_router(admin.router)
     return app
-
-
-app = create_app()

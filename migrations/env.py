@@ -5,11 +5,11 @@ from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from provenance_api import models  # noqa: F401 - registers the tables on Base.metadata
-from provenance_api.config import Settings
+from provenance_api.config import DatabaseSettings
 from provenance_api.db import Base
 
 # Tests pass a URL through the Alembic config; otherwise use the app's settings.
-database_url = context.config.get_main_option("sqlalchemy.url") or Settings().database_url
+database_url = context.config.get_main_option("sqlalchemy.url") or DatabaseSettings().database_url
 
 
 def run_offline() -> None:

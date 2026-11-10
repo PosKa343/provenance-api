@@ -1,8 +1,11 @@
 import uuid
+from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from provenance_api.ml.model import Label
+from provenance_api.models import Plan, Role
 
 
 class ClassifyRequest(BaseModel):
@@ -48,3 +51,64 @@ class ErrorEnvelope(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+# Reused in route decorators so OpenAPI documents the auth failures.
+AUTH_ERRORS: dict[int | str, dict[str, Any]] = {
+    401: {"model": ErrorEnvelope, "description": "Missing or invalid credentials."},
+    403: {"model": ErrorEnvelope, "description": "Authenticated, but not allowed."},
+}
+
+
+class Credentials(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        return value.lower()
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    role: Role
+    plan: Plan
+    created_at: datetime
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"  # noqa: S105 - a token type, not a password
+    expires_in: int = Field(description="Seconds until the token expires.")
+
+
+class ApiKeyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64, examples=["laptop"])
+
+
+class ApiKeyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    prefix: str = Field(description="First characters of the key, to tell keys apart.")
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+class ApiKeyCreated(ApiKeyOut):
+    key: str = Field(description="The full key. Shown only in this response; store it now.")
+
+
+class UserPage(BaseModel):
+    items: list[UserOut]
+    next_cursor: str | None = Field(description="Pass as ?cursor= to get the next page.")

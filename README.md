@@ -3,8 +3,8 @@
 A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
-**Status:** `POST /v1/classify` works end to end and stores each prediction in
-PostgreSQL. There is no authentication, rate limiting or batch processing yet.
+**Status:** accounts, API keys, roles and `POST /v1/classify` work end to end
+with PostgreSQL. There is no rate limiting, batch processing or billing yet.
 
 ## Quickstart
 
@@ -15,19 +15,56 @@ docker compose up --build
 ```
 
 This starts PostgreSQL, applies the database migrations, and serves the API on
-port 8000. Then:
+port 8000. Then create an account, log in, create an API key and classify a
+text:
 
 ```sh
-curl http://localhost:8000/healthz
+curl http://localhost:8000/v1/auth/register \
+  --header 'Content-Type: application/json' \
+  --data '{"email": "me@example.com", "password": "a long password"}'
+
+curl http://localhost:8000/v1/auth/login \
+  --header 'Content-Type: application/json' \
+  --data '{"email": "me@example.com", "password": "a long password"}'
+# copy "access_token" from the response
+
+curl http://localhost:8000/v1/api-keys \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer <access_token>' \
+  --data '{"name": "laptop"}'
+# copy "key" from the response; it is shown only once
 
 curl http://localhost:8000/v1/classify \
   --header 'Content-Type: application/json' \
+  --header 'X-API-Key: <key>' \
   --data '{"text": "The committee met on Tuesday. It approved the budget."}'
 ```
 
+`python3 scripts/smoke_test.py` runs the same path in one command.
 Interactive API docs are at http://localhost:8000/docs.
 
-The service stores a SHA-256 hash of each submitted text, never the text.
+## Authentication
+
+There are two kinds of credential, for two kinds of client:
+
+- **Access tokens** (JWT, 30 minutes) are for a person using a dashboard. They
+  open `/v1/me`, `/v1/api-keys` and `/v1/admin/*`.
+- **API keys** are for programs. They open `/v1/classify`. The server stores
+  only a SHA-256 hash of each key, so a leaked database does not leak keys.
+
+Passwords are hashed with Argon2id. The service stores a SHA-256 hash of each
+classified text, never the text.
+
+Roles: `member` (the default) can manage their own API keys, `viewer` can only
+read, and `admin` can also list all users. There is no API for changing roles.
+Make the first admin from a shell:
+
+```sh
+docker compose exec api python -m provenance_api.set_role me@example.com admin
+```
+
+The server will not start without `PROVENANCE_JWT_SECRET` (at least 32
+characters). `compose.yaml` sets a value for local use only.
 
 ## Development
 
@@ -52,7 +89,8 @@ To run the API outside Docker:
 ```sh
 docker compose up --detach postgres
 uv run alembic upgrade head
-uv run uvicorn provenance_api.main:app --reload
+export PROVENANCE_JWT_SECRET=local-development-secret-do-not-use-elsewhere
+uv run uvicorn provenance_api.main:create_app --factory --reload
 ```
 
 ## Model provenance

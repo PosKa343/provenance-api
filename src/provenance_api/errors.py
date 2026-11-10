@@ -29,22 +29,45 @@ _CODES_BY_STATUS = {
 class ApiError(Exception):
     """Raise from a route to return a specific error code and status."""
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self, status_code: int, code: str, message: str, headers: dict[str, str] | None = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.headers = headers or {}
+
+
+def unauthorized(message: str, scheme: str) -> ApiError:
+    return ApiError(401, "unauthorized", message, headers={"WWW-Authenticate": scheme})
+
+
+def forbidden(message: str) -> ApiError:
+    return ApiError(403, "forbidden", message)
+
+
+def not_found(message: str) -> ApiError:
+    return ApiError(404, "not_found", message)
 
 
 def _request_id(request: Request) -> str:
     return str(request.state.request_id)
 
 
-def _error_response(request: Request, status_code: int, code: str, message: str) -> JSONResponse:
+def _error_response(
+    request: Request,
+    status_code: int,
+    code: str,
+    message: str,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     request_id = _request_id(request)
     envelope = ErrorEnvelope(error=ErrorBody(code=code, message=message, request_id=request_id))
     return JSONResponse(
-        envelope.model_dump(), status_code=status_code, headers={REQUEST_ID_HEADER: request_id}
+        envelope.model_dump(),
+        status_code=status_code,
+        headers={**(headers or {}), REQUEST_ID_HEADER: request_id},
     )
 
 
@@ -59,7 +82,7 @@ async def _attach_request_id(
 
 async def _handle_api_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, ApiError)  # noqa: S101 - narrows the type for mypy
-    return _error_response(request, exc.status_code, exc.code, exc.message)
+    return _error_response(request, exc.status_code, exc.code, exc.message, exc.headers)
 
 
 async def _handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
