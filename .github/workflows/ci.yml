@@ -21,8 +21,8 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --locked
-      - name: Download NLTK tokenizer and tagger data
-        run: uv run python -m nltk.downloader punkt_tab averaged_perceptron_tagger_eng
+      - name: Download NLTK data
+        run: uv run python -m provenance_api.ml.nltk_data
       - name: Lint
         run: uv run ruff check .
       - name: Format check

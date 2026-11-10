@@ -9,6 +9,7 @@ from typing import Any
 import joblib
 import numpy as np
 
+from provenance_api.ml import nltk_data
 from provenance_api.ml.features import FEATURE_NAMES, extract_features
 
 AI_THRESHOLD = 0.5
@@ -55,6 +56,7 @@ class Classifier:
 
     @classmethod
     def load(cls) -> "Classifier":
+        nltk_data.ensure_available()
         artifacts = files("provenance_api.ml") / "artifacts"
         metadata = json.loads((artifacts / "model.json").read_text(encoding="utf-8"))
         # joblib files are pickles and can run code when loaded. Only the file

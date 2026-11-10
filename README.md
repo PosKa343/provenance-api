@@ -35,7 +35,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync                      # create .venv and install dependencies
-uv run python -m nltk.downloader punkt_tab averaged_perceptron_tagger_eng
+uv run python -m provenance_api.ml.nltk_data
 uv run pre-commit install    # run checks on every commit
 uv run ruff check .          # lint
 uv run ruff format --check . # format check

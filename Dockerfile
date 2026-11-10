@@ -12,9 +12,8 @@ COPY README.md LICENSE ./
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
-# Bake the tokenizer and tagger data into the image so startup needs no network.
-RUN /app/.venv/bin/python -m nltk.downloader -d /app/nltk_data \
-    punkt_tab averaged_perceptron_tagger_eng
+# Bake the NLTK data into the image so the container needs no network at runtime.
+RUN /app/.venv/bin/python -m provenance_api.ml.nltk_data /app/nltk_data
 
 
 # Runtime stage: only the virtualenv, NLTK data and migrations. No uv, no build tools.
