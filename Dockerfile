@@ -27,4 +27,4 @@ COPY migrations ./migrations
 ENV PATH="/app/.venv/bin:$PATH" NLTK_DATA=/app/nltk_data PYTHONUNBUFFERED=1
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "provenance_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "provenance_api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

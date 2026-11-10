@@ -22,6 +22,8 @@ services:
     command: ["alembic", "upgrade", "head"]
     environment: &app_environment
       PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
+      # Local development only. Set a real secret anywhere else.
+      PROVENANCE_JWT_SECRET: local-development-secret-do-not-use-elsewhere
     depends_on:
       postgres:
         condition: service_healthy
