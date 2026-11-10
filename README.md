@@ -3,8 +3,31 @@
 A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
-**Status:** the model module (`provenance_api.ml`) works and is tested. No HTTP
-endpoints are implemented yet.
+**Status:** `POST /v1/classify` works end to end and stores each prediction in
+PostgreSQL. There is no authentication, rate limiting or batch processing yet.
+
+## Quickstart
+
+Requires Docker.
+
+```sh
+docker compose up --build
+```
+
+This starts PostgreSQL, applies the database migrations, and serves the API on
+port 8000. Then:
+
+```sh
+curl http://localhost:8000/healthz
+
+curl http://localhost:8000/v1/classify \
+  --header 'Content-Type: application/json' \
+  --data '{"text": "The committee met on Tuesday. It approved the budget."}'
+```
+
+Interactive API docs are at http://localhost:8000/docs.
+
+The service stores a SHA-256 hash of each submitted text, never the text.
 
 ## Development
 
@@ -18,6 +41,18 @@ uv run ruff check .          # lint
 uv run ruff format --check . # format check
 uv run mypy                  # type check (strict)
 uv run pytest                # tests
+```
+
+The tests run against a real PostgreSQL. By default they start a throwaway
+container, so Docker must be running and your user must be allowed to use it.
+To use an existing database instead, set `PROVENANCE_TEST_DATABASE_URL`.
+
+To run the API outside Docker:
+
+```sh
+docker compose up --detach postgres
+uv run alembic upgrade head
+uv run uvicorn provenance_api.main:app --reload
 ```
 
 ## Model provenance
