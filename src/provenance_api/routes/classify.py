@@ -3,7 +3,7 @@ import hashlib
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 
-from provenance_api.dependencies import ClassifierDep, SessionDep, SettingsDep
+from provenance_api.dependencies import ApiKeyUser, ClassifierDep, SessionDep, SettingsDep
 from provenance_api.errors import ApiError
 from provenance_api.models import PredictionRecord
 from provenance_api.schemas import (
@@ -20,10 +20,15 @@ router = APIRouter(prefix="/v1", tags=["classify"])
     "/classify",
     response_model=ClassifyResponse,
     summary="Classify one text as human-written or AI-generated",
-    responses={413: {"model": ErrorEnvelope}, 422: {"model": ErrorEnvelope}},
+    responses={
+        401: {"model": ErrorEnvelope},
+        413: {"model": ErrorEnvelope},
+        422: {"model": ErrorEnvelope},
+    },
 )
 async def classify(
     body: ClassifyRequest,
+    user: ApiKeyUser,
     classifier: ClassifierDep,
     session: SessionDep,
     settings: SettingsDep,
@@ -38,6 +43,7 @@ async def classify(
     prediction = await run_in_threadpool(classifier.predict, body.text)
 
     record = PredictionRecord(
+        user_id=user.id,
         input_sha256=hashlib.sha256(body.text.encode("utf-8")).hexdigest(),
         label=prediction.label.value,
         probability_ai=prediction.probability_ai,

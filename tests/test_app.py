@@ -36,7 +36,7 @@ async def test_openapi_documents_classify_and_its_errors(client: httpx.AsyncClie
     schema = (await client.get("/openapi.json")).json()
 
     operation = schema["paths"]["/v1/classify"]["post"]
-    assert set(operation["responses"]) == {"200", "413", "422"}
+    assert set(operation["responses"]) == {"200", "401", "413", "422"}
     assert operation["responses"]["422"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ErrorEnvelope"
     }

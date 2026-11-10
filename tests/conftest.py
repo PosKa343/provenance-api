@@ -1,5 +1,5 @@
 import os
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -13,6 +13,11 @@ from provenance_api.config import Settings
 from provenance_api.main import create_app
 
 REPO_ROOT = Path(__file__).parent.parent
+TEST_JWT_SECRET = "test-only-secret-" + "0" * 32
+PASSWORD = "correct horse battery staple"
+
+Headers = dict[str, str]
+MakeUser = Callable[..., Awaitable[Headers]]
 
 
 @pytest.fixture(scope="session")
@@ -50,7 +55,9 @@ def _migrate(url: str) -> None:
 
 @pytest.fixture(scope="session")
 async def client(database_url: str) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(Settings(database_url=database_url, max_text_chars=5_000))
+    app = create_app(
+        Settings(database_url=database_url, max_text_chars=5_000, jwt_secret=TEST_JWT_SECRET)
+    )
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
@@ -66,6 +73,38 @@ async def db(database_url: str) -> AsyncIterator[AsyncEngine]:
     """An engine for inspecting the database, starting from empty tables."""
     engine = create_async_engine(database_url)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE predictions"))
+        await connection.execute(text("TRUNCATE predictions, api_keys, users CASCADE"))
     yield engine
     await engine.dispose()
+
+
+@pytest.fixture
+def make_user(client: httpx.AsyncClient, db: AsyncEngine) -> MakeUser:
+    """Register a user through the API and return headers carrying their access token."""
+
+    async def make(email: str = "member@example.com", role: str = "member") -> Headers:
+        registered = await client.post(
+            "/v1/auth/register", json={"email": email, "password": PASSWORD}
+        )
+        assert registered.status_code == 201, registered.text
+        if role != "member":
+            async with db.begin() as connection:
+                await connection.execute(
+                    text("UPDATE users SET role = :role WHERE email = :email"),
+                    {"role": role, "email": email},
+                )
+        login = await client.post("/v1/auth/login", json={"email": email, "password": PASSWORD})
+        return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    return make
+
+
+@pytest.fixture
+async def member(make_user: MakeUser) -> Headers:
+    return await make_user()
+
+
+@pytest.fixture
+async def api_key(client: httpx.AsyncClient, member: Headers) -> Headers:
+    created = await client.post("/v1/api-keys", json={"name": "test"}, headers=member)
+    return {"X-API-Key": created.json()["key"]}

@@ -13,8 +13,10 @@ pytestmark = pytest.mark.anyio
 TEXT = "The committee met on Tuesday. It approved the budget after a short debate."
 
 
-async def test_classify_returns_a_prediction(client: httpx.AsyncClient, db: AsyncEngine) -> None:
-    response = await client.post("/v1/classify", json={"text": TEXT})
+async def test_classify_returns_a_prediction(
+    client: httpx.AsyncClient, db: AsyncEngine, api_key: dict[str, str]
+) -> None:
+    response = await client.post("/v1/classify", json={"text": TEXT}, headers=api_key)
 
     assert response.status_code == 200
     body = response.json()
@@ -34,9 +36,9 @@ async def test_classify_returns_a_prediction(client: httpx.AsyncClient, db: Asyn
 
 
 async def test_classify_stores_a_hash_of_the_text_and_not_the_text(
-    client: httpx.AsyncClient, db: AsyncEngine
+    client: httpx.AsyncClient, db: AsyncEngine, api_key: dict[str, str]
 ) -> None:
-    response = await client.post("/v1/classify", json={"text": TEXT})
+    response = await client.post("/v1/classify", json={"text": TEXT}, headers=api_key)
     body = response.json()
 
     async with db.connect() as connection:
@@ -54,10 +56,10 @@ async def test_classify_stores_a_hash_of_the_text_and_not_the_text(
 
 
 async def test_same_text_twice_gives_two_rows_with_the_same_hash(
-    client: httpx.AsyncClient, db: AsyncEngine
+    client: httpx.AsyncClient, db: AsyncEngine, api_key: dict[str, str]
 ) -> None:
-    await client.post("/v1/classify", json={"text": TEXT})
-    await client.post("/v1/classify", json={"text": TEXT})
+    await client.post("/v1/classify", json={"text": TEXT}, headers=api_key)
+    await client.post("/v1/classify", json={"text": TEXT}, headers=api_key)
 
     async with db.connect() as connection:
         hashes = (await connection.execute(text("SELECT input_sha256 FROM predictions"))).scalars()
@@ -74,9 +76,13 @@ async def test_same_text_twice_gives_two_rows_with_the_same_hash(
     ],
 )
 async def test_invalid_body_is_rejected_with_the_error_envelope(
-    client: httpx.AsyncClient, db: AsyncEngine, payload: dict[str, object], message_part: str
+    client: httpx.AsyncClient,
+    db: AsyncEngine,
+    api_key: dict[str, str],
+    payload: dict[str, object],
+    message_part: str,
 ) -> None:
-    response = await client.post("/v1/classify", json=payload)
+    response = await client.post("/v1/classify", json=payload, headers=api_key)
 
     assert response.status_code == 422
     error = response.json()["error"]
@@ -91,30 +97,35 @@ async def test_invalid_body_is_rejected_with_the_error_envelope(
 
 
 async def test_text_over_the_configured_limit_is_rejected(
-    client: httpx.AsyncClient, db: AsyncEngine
+    client: httpx.AsyncClient, db: AsyncEngine, api_key: dict[str, str]
 ) -> None:
-    response = await client.post("/v1/classify", json={"text": "word " * 1001})
+    response = await client.post("/v1/classify", json={"text": "word " * 1001}, headers=api_key)
 
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "text_too_long"
     assert "5000" in response.json()["error"]["message"]
 
 
-async def test_text_at_the_limit_is_accepted(client: httpx.AsyncClient, db: AsyncEngine) -> None:
-    response = await client.post("/v1/classify", json={"text": "word " * 1000})
+async def test_text_at_the_limit_is_accepted(
+    client: httpx.AsyncClient, db: AsyncEngine, api_key: dict[str, str]
+) -> None:
+    response = await client.post("/v1/classify", json={"text": "word " * 1000}, headers=api_key)
 
     assert response.status_code == 200
 
 
 async def test_unexpected_failure_returns_500_envelope_without_leaking_details(
-    client: httpx.AsyncClient, db: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient,
+    db: AsyncEngine,
+    api_key: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def explode(self: object, text: str) -> None:
         raise RuntimeError("secret internal detail")
 
     monkeypatch.setattr("provenance_api.ml.model.Classifier.predict", explode)
 
-    response = await client.post("/v1/classify", json={"text": TEXT})
+    response = await client.post("/v1/classify", json={"text": TEXT}, headers=api_key)
 
     assert response.status_code == 500
     assert response.json() == {
