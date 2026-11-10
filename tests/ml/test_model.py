@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from provenance_api.ml.features import FEATURE_NAMES
-from provenance_api.ml.model import Classifier, Label, Prediction
+from provenance_api.ml.model import Classifier, Label, ModelArtifactError, Prediction
 
 DATASET = Path(__file__).parent.parent.parent / "data" / "ai_detection_dataset.csv"
 
@@ -66,3 +66,10 @@ def test_same_text_gives_the_same_prediction(classifier: Classifier) -> None:
     first: Prediction = classifier.predict(text)
 
     assert classifier.predict(text) == first
+
+
+def test_model_trained_on_other_features_is_rejected() -> None:
+    metadata = {"model_version": "lr-000000000000", "feature_names": ["word_entropy"]}
+
+    with pytest.raises(ModelArtifactError):
+        Classifier(estimator=None, metadata=metadata)
