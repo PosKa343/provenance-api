@@ -31,3 +31,34 @@ jobs:
         run: uv run mypy
       - name: Test
         run: uv run pytest --cov --cov-report=term-missing
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and start the stack
+        run: docker compose up --build --detach
+      - name: Wait for the API
+        run: |
+          for attempt in $(seq 1 30); do
+            curl --silent --fail http://localhost:8000/healthz && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - name: Classify a text through the running stack
+        run: |
+          curl --silent --fail-with-body http://localhost:8000/v1/classify \
+            --header 'Content-Type: application/json' \
+            --data '{"text": "The committee met on Tuesday. It approved the budget."}' \
+            | tee response.json
+          python3 -c "import json; body = json.load(open('response.json')); assert body['label'] in ('human', 'ai'), body"
+      - name: Check the prediction was stored
+        run: |
+          count=$(docker compose exec -T postgres psql -U provenance -d provenance -tAc 'SELECT count(*) FROM predictions')
+          test "$count" = "1"
+      - name: Check the container does not run as root
+        run: test "$(docker compose exec -T api id -u)" != "0"
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
