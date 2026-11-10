@@ -33,6 +33,11 @@ services:
     environment: &app_environment
       PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
       PROVENANCE_REDIS_URL: redis://redis:6379
+      # Optional Stripe test-mode settings, read from a git-ignored .env file
+      # next to this one. Left unset, the billing endpoints answer 503.
+      PROVENANCE_STRIPE_SECRET_KEY: ${PROVENANCE_STRIPE_SECRET_KEY:-}
+      PROVENANCE_STRIPE_WEBHOOK_SECRET: ${PROVENANCE_STRIPE_WEBHOOK_SECRET:-}
+      PROVENANCE_STRIPE_PRICE_ID: ${PROVENANCE_STRIPE_PRICE_ID:-}
       # Local development only. Set a real secret anywhere else.
       PROVENANCE_JWT_SECRET: local-development-secret-do-not-use-elsewhere
     depends_on:
