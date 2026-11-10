@@ -1,12 +1,8 @@
-"""Retrain the classifier from the dataset and write the model artifact.
-
-Usage: uv run python -m provenance_api.ml.train [path/to/dataset.csv]
-"""
+"""Retrain the classifier from the dataset. Run it with `provenance-api train`."""
 
 import csv
 import hashlib
 import json
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -108,15 +104,10 @@ def train(dataset_path: Path) -> TrainingResult:
     return TrainingResult(estimator=estimator, metadata=metadata)
 
 
-def main() -> None:
-    dataset_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATASET
-    result = train(dataset_path)
-    ARTIFACT_DIR.mkdir(exist_ok=True)
-    joblib.dump(result.estimator, MODEL_PATH)
-    METADATA_PATH.write_text(json.dumps(result.metadata, indent=2) + "\n")
-    print(json.dumps(result.metadata["metrics"], indent=2))
-    print(f"Wrote {MODEL_PATH} ({result.metadata['model_version']})")
-
-
-if __name__ == "__main__":
-    main()
+def write_artifacts(result: TrainingResult, directory: Path) -> Path:
+    """Write model.joblib and model.json into directory; return the model's path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    model_path = directory / MODEL_PATH.name
+    joblib.dump(result.estimator, model_path)
+    (directory / METADATA_PATH.name).write_text(json.dumps(result.metadata, indent=2) + "\n")
+    return model_path
