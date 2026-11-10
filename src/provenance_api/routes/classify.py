@@ -11,6 +11,7 @@ from provenance_api.dependencies import (
     SettingsDep,
 )
 from provenance_api.errors import ApiError
+from provenance_api.metrics import PREDICTIONS
 from provenance_api.models import PredictionRecord, UsageEvent, UsageKind
 from provenance_api.schemas import (
     ClassifyRequest,
@@ -63,6 +64,7 @@ async def classify(
     session.add(record)
     session.add(UsageEvent(user_id=user.id, kind=UsageKind.CLASSIFY, units=1))
     await session.commit()
+    PREDICTIONS.labels(prediction.label.value, "single").inc()
 
     return ClassifyResponse(
         prediction_id=record.id,

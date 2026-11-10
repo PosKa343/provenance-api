@@ -10,7 +10,9 @@ from provenance_api.config import Settings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.errors import install_error_handling
 from provenance_api.limits import Limiter
+from provenance_api.logs import configure_logging
 from provenance_api.ml.model import Classifier
+from provenance_api.observability import install_observability
 from provenance_api.routes import (
     admin,
     api_keys,
@@ -25,6 +27,7 @@ from provenance_api.routes import (
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    configure_logging(settings.log_format, settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -36,6 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
         app.state.limiter = Limiter(app.state.queue)
         yield
+        # Reached after the server has stopped taking requests and the ones in
+        # flight have finished, so connections are closed cleanly, not cut.
         await app.state.queue.aclose()
         await engine.dispose()
 
@@ -48,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.billing = gateway_from_settings(settings)
     install_error_handling(app)
+    install_observability(app)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(api_keys.router)

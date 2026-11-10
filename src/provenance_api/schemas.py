@@ -53,6 +53,11 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class ReadinessResponse(BaseModel):
+    status: Literal["ready", "not_ready"]
+    checks: dict[str, bool] = Field(description="Each dependency and whether it answered.")
+
+
 # Reused in route decorators so OpenAPI documents the auth failures.
 AUTH_ERRORS: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorEnvelope, "description": "Missing or invalid credentials."},

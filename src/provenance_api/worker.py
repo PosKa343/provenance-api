@@ -1,10 +1,11 @@
 """The background worker: takes batch jobs off the Redis queue and scores them."""
 
 import json
-import logging
+import time
 import uuid
 from typing import Any
 
+import structlog
 from arq import Retry
 from arq.connections import ArqRedis, RedisSettings
 from arq.worker import Worker, func
@@ -12,9 +13,10 @@ from arq.worker import Worker, func
 from provenance_api.config import BackendSettings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.jobs import mark_failed, run_job
+from provenance_api.metrics import JOB_DURATION, JOBS_FINISHED
 from provenance_api.ml.model import Classifier
 
-logger = logging.getLogger(__name__)
+job_log = structlog.get_logger(__name__)
 
 SCORE_JOB = "score_job"
 
@@ -40,24 +42,44 @@ async def score_job(ctx: dict[str, Any], job_id_text: str) -> None:
     session_factory = ctx["session_factory"]
     attempt: int = ctx["job_try"]
     job_id = uuid.UUID(job_id_text)
+    # Every log line written while working on this job carries its id.
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(job_id=job_id_text, attempt=attempt)
 
     stored_texts = await redis.get(texts_key(job_id))
     if stored_texts is None:
         await mark_failed(session_factory, job_id, "The submitted texts are no longer available.")
+        JOBS_FINISHED.labels("failed").inc()
+        job_log.warning("job finished", status="failed", reason="texts_expired")
         return
 
+    texts: list[str] = json.loads(stored_texts)
+    started = time.perf_counter()
+    status = "succeeded"
     try:
-        await run_job(session_factory, ctx["classifier"], job_id, json.loads(stored_texts))
+        await run_job(session_factory, ctx["classifier"], job_id, texts)
     except Exception as error:
         # Log the error type only: its message could quote a submitted text.
-        logger.error("Job %s failed on attempt %d (%s).", job_id, attempt, type(error).__name__)
         if attempt < settings.job_max_tries:
+            job_log.warning("job attempt failed; will retry", error=type(error).__name__)
             raise Retry(defer=settings.job_retry_backoff_seconds * 2 ** (attempt - 1)) from error
+        status = "failed"
         await mark_failed(
             session_factory,
             job_id,
             f"Scoring failed after {attempt} attempts ({type(error).__name__}).",
         )
+        job_log.error("job attempt failed; giving up", error=type(error).__name__)
+    finally:
+        JOB_DURATION.observe(time.perf_counter() - started)
+
+    JOBS_FINISHED.labels(status).inc()
+    job_log.info(
+        "job finished",
+        status=status,
+        texts=len(texts),
+        duration_ms=round((time.perf_counter() - started) * 1000, 1),
+    )
 
     # Reached on success and on final failure, never on a retry.
     await redis.delete(texts_key(job_id))
@@ -92,6 +114,8 @@ def create_worker(
         poll_delay=poll_delay,
         handle_signals=not burst,
         max_tries=settings.job_max_tries,
+        # On SIGTERM, let running jobs finish for a while before cancelling them.
+        job_completion_wait=settings.worker_shutdown_wait_seconds,
         # The job row in Postgres is the record of the outcome; arq need not keep one.
         keep_result=0,
     )
