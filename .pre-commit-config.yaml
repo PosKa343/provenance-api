@@ -7,6 +7,8 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        # The 1.5 MB training CSV is committed on purpose so retraining is reproducible.
+        args: ["--maxkb=2000"]
       - id: detect-private-key
 
   # Local hooks run the tools from uv.lock, so pre-commit and CI use the same versions.
