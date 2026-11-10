@@ -118,3 +118,18 @@ async def test_installed_command_reports_an_unknown_email(
 
     assert result.returncode == 1
     assert result.stdout.strip() == "No user with email nobody@example.com."
+
+
+@pytest.mark.anyio
+async def test_installed_command_changes_a_plan(
+    client: httpx.AsyncClient, member: Headers, database_url: str
+) -> None:
+    result = await anyio.to_thread.run_sync(
+        lambda: run_installed_command(
+            "set-plan", "member@example.com", "pro", database_url=database_url
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "member@example.com is now on the pro plan."
+    assert (await client.get("/v1/me", headers=member)).json()["plan"] == "pro"

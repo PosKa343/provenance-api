@@ -3,9 +3,9 @@
 A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
-**Status:** accounts, API keys, roles, `POST /v1/classify` and background batch
-jobs work end to end with PostgreSQL and Redis. There is no rate limiting or
-billing yet.
+**Status:** accounts, API keys, roles, `POST /v1/classify`, background batch
+jobs, rate limits and usage metering work end to end with PostgreSQL and Redis.
+There is no billing yet, so plans are changed from the command line.
 
 ## Quickstart
 
@@ -44,9 +44,35 @@ curl http://localhost:8000/v1/classify \
 `python3 scripts/smoke_test.py` runs the same path in one command.
 Interactive API docs are at http://localhost:8000/docs.
 
+## Plans and limits
+
+| | Free | Pro |
+|---|---|---|
+| Daily quota | 100 | 10,000 |
+| Burst per API key | 10, refilling 1 per second | 50, refilling 10 per second |
+| Batch jobs | no | yes |
+
+- **Daily quota** counts each single classification as 1 and each batch job as
+  1 per text. It is shared by all of a user's keys and resets at 00:00 UTC.
+- **Burst** is a token bucket per API key.
+- Going over either returns `429` with a `Retry-After` header. The error code
+  is `rate_limited` for the bucket and `quota_exceeded` for the daily quota.
+- `GET /v1/me` shows today's usage and limit; `GET /v1/usage` shows usage by day.
+
+All of these numbers are settings (`PROVENANCE_FREE_DAILY_QUOTA` and so on).
+Until billing exists, change a plan by hand:
+
+```sh
+docker compose exec api provenance-api set-plan me@example.com pro
+```
+
+Both limits live in Redis, so several API replicas share them. If Redis is
+unreachable the limits are not enforced: an outage should not take the API
+down. Login and registration are not rate limited yet.
+
 ## Batch jobs
 
-`POST /v1/jobs` takes a list of texts and returns at once with a job id. A
+Batch jobs need the Pro plan. `POST /v1/jobs` takes a list of texts and returns at once with a job id. A
 separate worker process scores the texts; poll `GET /v1/jobs/{id}` for
 `queued`, `running`, `succeeded` or `failed`, and read
 `GET /v1/jobs/{id}/results` for the results in submission order.

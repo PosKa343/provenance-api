@@ -5,10 +5,18 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from provenance_api.dependencies import CurrentUser, SessionDep, SettingsDep
+from provenance_api.dependencies import CurrentUser, LimiterDep, SessionDep, SettingsDep
 from provenance_api.errors import ApiError, unauthorized
 from provenance_api.models import User
-from provenance_api.schemas import AUTH_ERRORS, Credentials, ErrorEnvelope, TokenResponse, UserOut
+from provenance_api.schemas import (
+    AUTH_ERRORS,
+    Credentials,
+    ErrorEnvelope,
+    MeOut,
+    QuotaOut,
+    TokenResponse,
+    UserOut,
+)
 from provenance_api.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/v1", tags=["auth"])
@@ -59,6 +67,21 @@ async def login(body: Credentials, session: SessionDep, settings: SettingsDep) -
     return TokenResponse(access_token=token, expires_in=int(lifetime.total_seconds()))
 
 
-@router.get("/me", response_model=UserOut, summary="The signed-in user", responses=AUTH_ERRORS)
-async def me(user: CurrentUser) -> User:
-    return user
+@router.get(
+    "/me",
+    response_model=MeOut,
+    summary="The signed-in user, their plan and today's usage",
+    responses=AUTH_ERRORS,
+)
+async def me(user: CurrentUser, settings: SettingsDep, limiter: LimiterDep) -> MeOut:
+    return MeOut(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        plan=user.plan,
+        created_at=user.created_at,
+        usage=QuotaOut(
+            daily_limit=settings.limits_for(user.plan).daily_quota,
+            used_today=await limiter.used_today(user.id),
+        ),
+    )

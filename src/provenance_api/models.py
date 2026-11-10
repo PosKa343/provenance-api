@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -68,6 +69,26 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UsageKind(StrEnum):
+    CLASSIFY = "classify"
+    BATCH = "batch"
+
+
+class UsageEvent(Base):
+    """The durable record of metered usage: one row per charged request."""
+
+    __tablename__ = "usage_events"
+    __table_args__ = (Index("ix_usage_events_user_id_occurred_at", "user_id", "occurred_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[UsageKind] = mapped_column(_string_enum(UsageKind, "ck_usage_events_kind"))
+    units: Mapped[int] = mapped_column(Integer)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class JobStatus(StrEnum):

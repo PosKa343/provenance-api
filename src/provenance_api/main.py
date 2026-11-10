@@ -8,8 +8,9 @@ from provenance_api import __version__
 from provenance_api.config import Settings
 from provenance_api.db import create_engine, create_session_factory
 from provenance_api.errors import install_error_handling
+from provenance_api.limits import Limiter
 from provenance_api.ml.model import Classifier
-from provenance_api.routes import admin, api_keys, auth, classify, health, jobs
+from provenance_api.routes import admin, api_keys, auth, classify, health, jobs, usage
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -23,6 +24,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings.database_url)
         app.state.session_factory = create_session_factory(engine)
         app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        app.state.limiter = Limiter(app.state.queue)
         yield
         await app.state.queue.aclose()
         await engine.dispose()
@@ -40,5 +42,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_keys.router)
     app.include_router(classify.router)
     app.include_router(jobs.router)
+    app.include_router(usage.router)
     app.include_router(admin.router)
     return app

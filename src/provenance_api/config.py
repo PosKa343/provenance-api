@@ -1,5 +1,15 @@
+from dataclasses import dataclass
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True)
+class PlanLimits:
+    daily_quota: int
+    burst: int
+    refill_per_second: float
+    batch_jobs: bool
 
 
 class BackendSettings(BaseSettings):
@@ -25,3 +35,21 @@ class Settings(BackendSettings):
     # No default: the service must not start with a guessable signing key.
     jwt_secret: SecretStr = Field(min_length=32)
     access_token_minutes: int = 30
+
+    # Daily quota counts single classifications plus every text in a batch job.
+    # Burst and refill describe the per-key token bucket.
+    free_daily_quota: int = 100
+    free_burst: int = 10
+    free_refill_per_second: float = 1.0
+    pro_daily_quota: int = 10_000
+    pro_burst: int = 50
+    pro_refill_per_second: float = 10.0
+
+    def limits_for(self, plan: str) -> PlanLimits:
+        if plan == "pro":
+            return PlanLimits(
+                self.pro_daily_quota, self.pro_burst, self.pro_refill_per_second, batch_jobs=True
+            )
+        return PlanLimits(
+            self.free_daily_quota, self.free_burst, self.free_refill_per_second, batch_jobs=False
+        )

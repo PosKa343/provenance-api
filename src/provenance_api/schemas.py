@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -154,3 +154,23 @@ class JobResult(BaseModel):
 class JobResultsPage(BaseModel):
     items: list[JobResult]
     next_cursor: int | None = Field(description="Pass as ?cursor= to get the next page.")
+
+
+class QuotaOut(BaseModel):
+    daily_limit: int
+    used_today: int = Field(description="Units used since 00:00 UTC.")
+
+
+class MeOut(UserOut):
+    usage: QuotaOut
+
+
+class UsageDay(BaseModel):
+    date: date
+    classify: int = Field(description="Single classifications.")
+    batch: int = Field(description="Texts submitted in batch jobs.")
+    total: int
+
+
+class UsageOut(BaseModel):
+    days: list[UsageDay] = Field(description="Days with usage, newest first. Dates are UTC.")

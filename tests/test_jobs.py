@@ -55,9 +55,9 @@ async def count(db: AsyncEngine, table: str) -> int:
 
 
 async def test_submitted_job_is_queued_then_scored_by_the_worker(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, run_worker: RunWorker
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, run_worker: RunWorker
 ) -> None:
-    submitted = await submit(client, api_key, TEXTS)
+    submitted = await submit(client, pro_api_key, TEXTS)
 
     assert submitted.status_code == 202
     job = submitted.json()
@@ -66,12 +66,12 @@ async def test_submitted_job_is_queued_then_scored_by_the_worker(
 
     await run_worker()
 
-    finished = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    finished = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
     assert (finished["status"], finished["processed"], finished["error"]) == ("succeeded", 3, None)
     assert finished["started_at"] is not None
     assert finished["finished_at"] is not None
 
-    results = (await client.get(f"/v1/jobs/{job['id']}/results", headers=api_key)).json()
+    results = (await client.get(f"/v1/jobs/{job['id']}/results", headers=pro_api_key)).json()
     assert [item["position"] for item in results["items"]] == [0, 1, 2]
     assert [item["input_sha256"] for item in results["items"]] == [
         hashlib.sha256(t.encode()).hexdigest() for t in TEXTS
@@ -81,14 +81,18 @@ async def test_submitted_job_is_queued_then_scored_by_the_worker(
 
 
 async def test_batch_result_matches_the_single_text_endpoint(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, run_worker: RunWorker
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, run_worker: RunWorker
 ) -> None:
-    single = (await client.post("/v1/classify", json={"text": TEXTS[0]}, headers=api_key)).json()
-    job = (await submit(client, api_key, [TEXTS[0]])).json()
+    single = (
+        await client.post("/v1/classify", json={"text": TEXTS[0]}, headers=pro_api_key)
+    ).json()
+    job = (await submit(client, pro_api_key, [TEXTS[0]])).json()
 
     await run_worker()
 
-    item = (await client.get(f"/v1/jobs/{job['id']}/results", headers=api_key)).json()["items"][0]
+    item = (await client.get(f"/v1/jobs/{job['id']}/results", headers=pro_api_key)).json()["items"][
+        0
+    ]
     assert item["label"] == single["label"]
     assert item["probability_ai"] == pytest.approx(single["probability_ai"])
 
@@ -96,11 +100,11 @@ async def test_batch_result_matches_the_single_text_endpoint(
 async def test_texts_are_not_kept_in_postgres_or_redis_after_the_job(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     queue: ArqRedis,
     run_worker: RunWorker,
 ) -> None:
-    await submit(client, api_key, TEXTS)
+    await submit(client, pro_api_key, TEXTS)
     await run_worker()
 
     async with db.connect() as connection:
@@ -108,15 +112,16 @@ async def test_texts_are_not_kept_in_postgres_or_redis_after_the_job(
         jobs = (await connection.execute(text("SELECT * FROM jobs"))).mappings().all()
     stored = [value for row in [*rows, *jobs] for value in row.values() if isinstance(value, str)]
     assert not any(t in value for t in TEXTS for value in stored)
-    # The worker's own health-check key holds counters, not job data.
-    assert [key for key in await queue.keys("*") if key != b"arq:queue:health-check"] == []
+    # What remains in Redis is counters only: rate-limit buckets, quotas, worker health.
+    for pattern in ("provenance:job-texts:*", "arq:job:*", "arq:result:*"):
+        assert await queue.keys(pattern) == []
 
 
 async def test_retry_with_the_same_idempotency_key_returns_the_first_job(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, run_worker: RunWorker
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, run_worker: RunWorker
 ) -> None:
-    first = await submit(client, api_key, TEXTS, key="order-42")
-    second = await submit(client, api_key, TEXTS, key="order-42")
+    first = await submit(client, pro_api_key, TEXTS, key="order-42")
+    second = await submit(client, pro_api_key, TEXTS, key="order-42")
 
     assert (first.status_code, second.status_code) == (202, 200)
     assert second.json()["id"] == first.json()["id"]
@@ -125,7 +130,7 @@ async def test_retry_with_the_same_idempotency_key_returns_the_first_job(
     await run_worker()
     assert await count(db, "predictions") == 3
 
-    after_finish = await submit(client, api_key, TEXTS, key="order-42")
+    after_finish = await submit(client, pro_api_key, TEXTS, key="order-42")
     assert after_finish.status_code == 200
     assert after_finish.json()["status"] == "succeeded"
     await run_worker()
@@ -133,11 +138,11 @@ async def test_retry_with_the_same_idempotency_key_returns_the_first_job(
 
 
 async def test_same_key_with_different_texts_is_a_conflict(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, queue: ArqRedis
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, queue: ArqRedis
 ) -> None:
-    await submit(client, api_key, TEXTS, key="order-42")
+    await submit(client, pro_api_key, TEXTS, key="order-42")
 
-    response = await submit(client, api_key, TEXTS[:1], key="order-42")
+    response = await submit(client, pro_api_key, TEXTS[:1], key="order-42")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "idempotency_key_reused"
@@ -147,14 +152,14 @@ async def test_same_key_with_different_texts_is_a_conflict(
 async def test_two_users_can_use_the_same_idempotency_key(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     make_user: MakeUser,
     queue: ArqRedis,
 ) -> None:
-    other = await make_user("other@example.com")
+    other = await make_user("other@example.com", plan="pro")
     other_key = (await client.post("/v1/api-keys", json={"name": "k"}, headers=other)).json()["key"]
 
-    mine = await submit(client, api_key, TEXTS, key="order-42")
+    mine = await submit(client, pro_api_key, TEXTS, key="order-42")
     theirs = await submit(client, {"X-API-Key": other_key}, TEXTS, key="order-42")
 
     assert (mine.status_code, theirs.status_code) == (202, 202)
@@ -162,10 +167,10 @@ async def test_two_users_can_use_the_same_idempotency_key(
 
 
 async def test_without_a_key_each_submission_is_a_new_job(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, queue: ArqRedis
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, queue: ArqRedis
 ) -> None:
-    first = await submit(client, api_key, TEXTS)
-    second = await submit(client, api_key, TEXTS)
+    first = await submit(client, pro_api_key, TEXTS)
+    second = await submit(client, pro_api_key, TEXTS)
 
     assert first.json()["id"] != second.json()["id"]
     assert await count(db, "jobs") == 2
@@ -174,7 +179,7 @@ async def test_without_a_key_each_submission_is_a_new_job(
 async def test_job_fails_after_three_attempts_when_scoring_keeps_failing(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     queue: ArqRedis,
     run_worker: RunWorker,
     monkeypatch: pytest.MonkeyPatch,
@@ -186,12 +191,12 @@ async def test_job_fails_after_three_attempts_when_scoring_keeps_failing(
         attempts += 1
         raise RuntimeError("secret internal detail")
 
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     monkeypatch.setattr(Classifier, "predict", explode)
 
     await run_worker()
 
-    failed = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    failed = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
     assert failed["status"] == "failed"
     assert failed["error"] == "Scoring failed after 3 attempts (RuntimeError)."
     assert failed["finished_at"] is not None
@@ -203,7 +208,7 @@ async def test_job_fails_after_three_attempts_when_scoring_keeps_failing(
 async def test_job_that_fails_once_is_retried_and_resumes_without_duplicates(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     run_worker: RunWorker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -220,12 +225,12 @@ async def test_job_that_fails_once_is_retried_and_resumes_without_duplicates(
         scored.append(text)
         return real_predict(self, text)
 
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     monkeypatch.setattr(Classifier, "predict", flaky)
 
     await run_worker()
 
-    finished = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    finished = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
     assert (finished["status"], finished["processed"]) == ("succeeded", 3)
     assert await count(db, "predictions") == 3
     # The first two texts were saved before the failure and were not scored again.
@@ -235,29 +240,31 @@ async def test_job_that_fails_once_is_retried_and_resumes_without_duplicates(
 async def test_running_a_finished_job_again_changes_nothing(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     run_worker: RunWorker,
 ) -> None:
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     await run_worker()
-    before = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    before = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
 
     await run_job(create_session_factory(db), Classifier.load(), uuid.UUID(job["id"]), TEXTS)
 
-    assert (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json() == before
+    assert (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json() == before
     assert await count(db, "predictions") == 3
 
 
 async def test_results_are_paginated_in_submission_order(
-    client: httpx.AsyncClient, db: AsyncEngine, api_key: Headers, run_worker: RunWorker
+    client: httpx.AsyncClient, db: AsyncEngine, pro_api_key: Headers, run_worker: RunWorker
 ) -> None:
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     await run_worker()
     url = f"/v1/jobs/{job['id']}/results"
 
-    first = (await client.get(url, params={"limit": 2}, headers=api_key)).json()
+    first = (await client.get(url, params={"limit": 2}, headers=pro_api_key)).json()
     second = (
-        await client.get(url, params={"limit": 2, "cursor": first["next_cursor"]}, headers=api_key)
+        await client.get(
+            url, params={"limit": 2, "cursor": first["next_cursor"]}, headers=pro_api_key
+        )
     ).json()
 
     assert [item["position"] for item in first["items"]] == [0, 1]
@@ -269,11 +276,11 @@ async def test_results_are_paginated_in_submission_order(
 async def test_another_users_job_looks_like_a_missing_one(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     make_user: MakeUser,
     queue: ArqRedis,
 ) -> None:
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     other = await make_user("other@example.com")
     other_key = {
         "X-API-Key": (await client.post("/v1/api-keys", json={"name": "k"}, headers=other)).json()[
@@ -303,13 +310,13 @@ async def test_another_users_job_looks_like_a_missing_one(
 async def test_invalid_batches_are_rejected_and_nothing_is_queued(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     queue: ArqRedis,
     texts: list[str],
     status: int,
     code: str,
 ) -> None:
-    response = await submit(client, api_key, texts)
+    response = await submit(client, pro_api_key, texts)
 
     assert response.status_code == status
     assert response.json()["error"]["code"] == code
@@ -325,7 +332,7 @@ async def test_jobs_require_an_api_key(client: httpx.AsyncClient, queue: ArqRedi
 async def test_job_is_marked_failed_when_it_cannot_be_queued(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     queue: ArqRedis,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -334,7 +341,7 @@ async def test_job_is_marked_failed_when_it_cannot_be_queued(
 
     monkeypatch.setattr("provenance_api.routes.jobs.enqueue_scoring", unavailable)
 
-    response = await submit(client, api_key, TEXTS)
+    response = await submit(client, pro_api_key, TEXTS)
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "queue_unavailable"
@@ -346,7 +353,7 @@ async def test_job_is_marked_failed_when_it_cannot_be_queued(
 async def test_submitted_texts_never_appear_in_logs(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     run_worker: RunWorker,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -355,9 +362,9 @@ async def test_submitted_texts_never_appear_in_logs(
         raise RuntimeError(f"could not score: {text}")
 
     caplog.set_level(logging.DEBUG)
-    await submit(client, api_key, TEXTS)
+    await submit(client, pro_api_key, TEXTS)
     await run_worker()
-    await submit(client, api_key, TEXTS)
+    await submit(client, pro_api_key, TEXTS)
     monkeypatch.setattr(Classifier, "predict", explode)
     await run_worker()
 
@@ -371,16 +378,16 @@ async def test_submitted_texts_never_appear_in_logs(
 async def test_job_whose_texts_have_expired_is_marked_failed(
     client: httpx.AsyncClient,
     db: AsyncEngine,
-    api_key: Headers,
+    pro_api_key: Headers,
     queue: ArqRedis,
     run_worker: RunWorker,
 ) -> None:
-    job = (await submit(client, api_key, TEXTS)).json()
+    job = (await submit(client, pro_api_key, TEXTS)).json()
     await queue.delete(f"provenance:job-texts:{job['id']}")
 
     await run_worker()
 
-    failed = (await client.get(f"/v1/jobs/{job['id']}", headers=api_key)).json()
+    failed = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
     assert (failed["status"], failed["error"]) == (
         "failed",
         "The submitted texts are no longer available.",
