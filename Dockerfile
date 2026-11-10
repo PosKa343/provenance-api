@@ -27,4 +27,9 @@ COPY migrations ./migrations
 ENV PATH="/app/.venv/bin:$PATH" NLTK_DATA=/app/nltk_data PYTHONUNBUFFERED=1
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "provenance_api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Our middleware writes one JSON line per request, so uvicorn's own access log
+# is off. On SIGTERM the server stops accepting connections and gives requests
+# in flight up to 20 seconds to finish.
+CMD ["uvicorn", "provenance_api.main:create_app", "--factory", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--no-access-log", "--timeout-graceful-shutdown", "20"]
