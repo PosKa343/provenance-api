@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from provenance_api.config import Settings
 from provenance_api.db import create_session_factory
+from provenance_api.inference import InferencePool
 from provenance_api.jobs import run_job
 from provenance_api.ml.model import Classifier, Prediction
 from provenance_api.worker import create_worker
@@ -247,7 +248,7 @@ async def test_running_a_finished_job_again_changes_nothing(
     await run_worker()
     before = (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json()
 
-    await run_job(create_session_factory(db), Classifier.load(), uuid.UUID(job["id"]), TEXTS)
+    await run_job(create_session_factory(db), InferencePool(0), uuid.UUID(job["id"]), TEXTS)
 
     assert (await client.get(f"/v1/jobs/{job['id']}", headers=pro_api_key)).json() == before
     assert await count(db, "predictions") == 3

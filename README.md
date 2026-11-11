@@ -5,7 +5,8 @@ authenticated, rate-limited REST API with background batch jobs.
 
 **Status:** accounts, API keys, roles, `POST /v1/classify`, background batch
 jobs, rate limits, usage metering, Stripe billing (test mode only), structured
-logs and Prometheus metrics work end to end with PostgreSQL and Redis.
+logs and Prometheus metrics work end to end with PostgreSQL and Redis. Measured
+at 164 requests per second on a laptop; see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Quickstart
 
@@ -145,6 +146,46 @@ curl http://localhost:8000/v1/jobs \
 Known limits: if the API process dies between saving a job and queueing it,
 the job stays `queued`; if a worker is killed during its last attempt, the job
 stays `running`. Both need a periodic sweeper, which is not built yet.
+
+## Running it for real
+
+There is no public demo URL. The service needs an API process, a background
+worker, PostgreSQL and Redis, and about 600 MiB of memory for the API alone. As
+of November 2026 I found no free hosting tier that fits: Render's free tier has
+no background workers and deletes free databases after 30 days, Fly.io has no
+free tier for new accounts, and Railway's free plan is a single 0.5 GB service.
+A demo that dies every month is worse than none, so the supported deployment is
+the compose stack on any machine with Docker:
+
+```sh
+git clone https://github.com/PosKa343/provenance-api.git
+cd provenance-api
+docker compose up --build --detach
+python3 scripts/smoke_test.py
+```
+
+`compose.yaml` is a development setup. Before exposing it to anyone else:
+
+- Set `PROVENANCE_JWT_SECRET` to a long random value, and change the PostgreSQL
+  password. The values in `compose.yaml` are public.
+- Put a TLS-terminating reverse proxy in front of port 8000. The service
+  speaks plain HTTP.
+- Keep `/metrics`, port 9100, PostgreSQL and Redis off the public network.
+  compose binds them all to `127.0.0.1` for that reason.
+
+What the image and compose file already do:
+
+- The image is built in two stages and runs as a non-root user.
+- Containers run with a read-only filesystem, no Linux capabilities and
+  `no-new-privileges`. The only writable path is a temporary `/tmp`.
+- NLTK data is baked in at build time, so the container needs no network
+  access at runtime, and the server refuses to start if any is missing.
+
+**Tuning.** The classifier runs in a pool of worker processes, set by
+`PROVENANCE_INFERENCE_WORKERS` (default 2). Each adds about 200 MiB of memory
+and about 80 requests per second, until the single API process becomes the
+limit at about 240. [BENCHMARKS.md](BENCHMARKS.md) has the measurements and
+explains why threads were the wrong tool here.
 
 ## Operations
 

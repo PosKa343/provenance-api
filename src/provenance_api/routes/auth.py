@@ -30,7 +30,8 @@ router = APIRouter(prefix="/v1", tags=["auth"])
     responses={409: {"model": ErrorEnvelope}, 422: {"model": ErrorEnvelope}},
 )
 async def register(body: Credentials, session: SessionDep) -> User:
-    # Argon2 is slow on purpose, so it runs in a worker thread like the model does.
+    # Argon2 is slow on purpose. It is C code that releases the interpreter lock
+    # while it works, so a worker thread is enough to keep the event loop free.
     password_hash = await run_in_threadpool(hash_password, body.password)
     user = User(email=body.email, password_hash=password_hash)
     session.add(user)

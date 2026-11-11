@@ -107,3 +107,12 @@ def test_paragraph_count_is_one_because_cleaning_collapses_blank_lines() -> None
     features = extract_features("First paragraph.\n\nSecond paragraph.\n\nThird.")
 
     assert features["paragraph_count"] == 1
+
+
+def test_no_text_is_left_in_the_readability_librarys_caches() -> None:
+    from provenance_api.ml.features import _TEXT_CACHES
+
+    extract_features("A text that must not be remembered. It has two sentences.")
+
+    assert len(_TEXT_CACHES) > 0
+    assert sum(cache.cache_info().currsize for cache in _TEXT_CACHES) == 0

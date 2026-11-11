@@ -1,4 +1,28 @@
 # Local development stack. The credentials here are for local use only.
+
+# Settings shared by the three containers built from this project's image.
+x-app-environment: &app_environment
+  PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
+  PROVENANCE_REDIS_URL: redis://redis:6379
+  # Local development only. Set a real secret anywhere else.
+  PROVENANCE_JWT_SECRET: local-development-secret-do-not-use-elsewhere
+  # Optional Stripe test-mode settings, read from a git-ignored .env file
+  # next to this one. Left unset, the billing endpoints answer 503.
+  PROVENANCE_STRIPE_SECRET_KEY: ${PROVENANCE_STRIPE_SECRET_KEY:-}
+  PROVENANCE_STRIPE_WEBHOOK_SECRET: ${PROVENANCE_STRIPE_WEBHOOK_SECRET:-}
+  PROVENANCE_STRIPE_PRICE_ID: ${PROVENANCE_STRIPE_PRICE_ID:-}
+
+# The process needs no extra privileges and writes nothing to its own
+# filesystem, so both are taken away: a bug or a break-in has less to work with.
+x-app-hardening: &app_hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -28,23 +52,16 @@ services:
 
   # Runs the Alembic migrations once, then exits. The API waits for it.
   migrate:
+    <<: *app_hardening
     build: .
     command: ["alembic", "upgrade", "head"]
-    environment: &app_environment
-      PROVENANCE_DATABASE_URL: postgresql+asyncpg://provenance:provenance@postgres:5432/provenance
-      PROVENANCE_REDIS_URL: redis://redis:6379
-      # Optional Stripe test-mode settings, read from a git-ignored .env file
-      # next to this one. Left unset, the billing endpoints answer 503.
-      PROVENANCE_STRIPE_SECRET_KEY: ${PROVENANCE_STRIPE_SECRET_KEY:-}
-      PROVENANCE_STRIPE_WEBHOOK_SECRET: ${PROVENANCE_STRIPE_WEBHOOK_SECRET:-}
-      PROVENANCE_STRIPE_PRICE_ID: ${PROVENANCE_STRIPE_PRICE_ID:-}
-      # Local development only. Set a real secret anywhere else.
-      PROVENANCE_JWT_SECRET: local-development-secret-do-not-use-elsewhere
+    environment: *app_environment
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
+    <<: *app_hardening
     build: .
     environment: *app_environment
     ports:
@@ -57,7 +74,7 @@ services:
     # Longer than the server's own 20-second drain, so Docker never cuts it short.
     stop_grace_period: 30s
     healthcheck:
-      # Readiness, not liveness: the API is healthy for compose once it can reach its dependencies.
+      # Readiness, not liveness: healthy for compose once it can reach its dependencies.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
       interval: 5s
       timeout: 3s
@@ -65,17 +82,18 @@ services:
 
   # Same image as the API, different command: takes batch jobs off the queue.
   worker:
+    <<: *app_hardening
     build: .
     command: ["provenance-api", "worker"]
     environment: *app_environment
     ports:
       - "127.0.0.1:9100:9100"  # the worker's Prometheus metrics
-    stop_grace_period: 30s
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    stop_grace_period: 30s
 
 volumes:
   postgres_data:

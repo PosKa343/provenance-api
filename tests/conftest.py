@@ -82,6 +82,9 @@ def settings(database_url: str, redis_url: str) -> Settings:
         max_text_chars=5_000,
         max_batch_texts=5,
         job_retry_backoff_seconds=0,
+        # In-process inference, so tests can replace Classifier.predict to force
+        # failures. The worker-process mode has its own tests in test_inference.py.
+        inference_workers=0,
         # High enough that only the tests about limits ever reach them.
         free_daily_quota=1_000,
         free_burst=1_000,

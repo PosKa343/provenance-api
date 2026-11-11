@@ -1,0 +1,11 @@
+# Used only for load tests, on top of compose.yaml. It lifts the Pro plan's
+# limits out of the way so the test measures the service, not the rate limiter
+# refusing requests. The limiter still runs on every request.
+services:
+  api:
+    environment:
+      PROVENANCE_PRO_DAILY_QUOTA: "1000000000"
+      PROVENANCE_PRO_BURST: "1000000"
+      PROVENANCE_PRO_REFILL_PER_SECOND: "1000000"
+      # Set BENCH_INFERENCE_WORKERS to compare pool sizes.
+      PROVENANCE_INFERENCE_WORKERS: ${BENCH_INFERENCE_WORKERS:-2}

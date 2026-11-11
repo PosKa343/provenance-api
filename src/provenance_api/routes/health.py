@@ -47,7 +47,7 @@ async def _redis_ok(request: Request) -> bool:
 )
 async def readyz(request: Request) -> JSONResponse:
     checks = {
-        "model": hasattr(request.app.state, "classifier"),
+        "model": hasattr(request.app.state, "inference"),
         "database": await _database_ok(request),
         "redis": await _redis_ok(request),
     }

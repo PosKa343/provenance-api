@@ -1,11 +1,14 @@
 """Turn a text into the numeric features the classifier was trained on."""
 
+import inspect
 import math
 import re
+import sys
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from statistics import pstdev
+from typing import Any
 
 import nltk
 import textstat
@@ -80,13 +83,45 @@ def preprocess(text: str) -> PreprocessedText:
 
 def extract_features(text: str) -> dict[str, float]:
     pre = preprocess(text)
-    features = {
-        **_statistical_features(pre),
-        **_readability_features(pre.normalized),
-        **_part_of_speech_ratios(pre.tokens),
-        **_ngram_features(pre.tokens),
-    }
+    try:
+        features = {
+            **_statistical_features(pre),
+            **_readability_features(pre.normalized),
+            **_part_of_speech_ratios(pre.tokens),
+            **_ngram_features(pre.tokens),
+        }
+    finally:
+        _forget_text()
     return {name: float(features[name]) for name in FEATURE_NAMES}
+
+
+def _textstat_caches_keyed_by_text() -> list[Any]:
+    """textstat's result caches whose key is a whole text.
+
+    textstat remembers its last 128 results per function. That is useful within
+    one text, where six scores share intermediate counts, but it would keep
+    submitted texts in memory afterwards. Caches keyed by a single word or by
+    nothing (the pronunciation dictionary) are left alone.
+    """
+    caches = []
+    for module_name, module in list(sys.modules.items()):
+        if not module_name.startswith("textstat."):
+            continue
+        for candidate in vars(module).values():
+            wrapped = getattr(candidate, "__wrapped__", None)
+            if wrapped is None or not hasattr(candidate, "cache_clear"):
+                continue
+            if next(iter(inspect.signature(wrapped).parameters), None) == "text":
+                caches.append(candidate)
+    return list({id(cache): cache for cache in caches}.values())
+
+
+_TEXT_CACHES = _textstat_caches_keyed_by_text()
+
+
+def _forget_text() -> None:
+    for cache in _TEXT_CACHES:
+        cache.cache_clear()
 
 
 def _clean(text: str) -> str:
