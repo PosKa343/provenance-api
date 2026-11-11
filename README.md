@@ -6,7 +6,7 @@ authenticated, rate-limited REST API with background batch jobs.
 **Status:** accounts, API keys, roles, `POST /v1/classify`, background batch
 jobs, rate limits, usage metering, Stripe billing (test mode only), structured
 logs and Prometheus metrics work end to end with PostgreSQL and Redis. Measured
-at 164 requests per second on a laptop; see [BENCHMARKS.md](BENCHMARKS.md).
+at 164 requests per second on a laptop with `loadtest/run.sh`.
 
 ## Quickstart
 
@@ -184,8 +184,7 @@ What the image and compose file already do:
 **Tuning.** The classifier runs in a pool of worker processes, set by
 `PROVENANCE_INFERENCE_WORKERS` (default 2). Each adds about 200 MiB of memory
 and about 80 requests per second, until the single API process becomes the
-limit at about 240. [BENCHMARKS.md](BENCHMARKS.md) has the measurements and
-explains why threads were the wrong tool here.
+limit at about 240. `loadtest/run.sh` reproduces the measurement.
 
 ## Operations
 

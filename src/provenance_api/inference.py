@@ -5,7 +5,7 @@ engine that releases Python's global interpreter lock on each call, several
 hundred times per text. Threads then spend their time passing the lock between
 CPU cores. Measured on the development machine, 16 threads classified about a
 quarter as many texts per second as one thread did. Separate processes each
-have their own lock and so run in parallel. See BENCHMARKS.md.
+have their own lock and so run in parallel.
 """
 
 import asyncio
