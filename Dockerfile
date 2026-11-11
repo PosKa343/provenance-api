@@ -15,6 +15,14 @@ RUN uv sync --locked --no-dev --no-editable
 # Bake the NLTK data into the image so the container needs no network at runtime.
 RUN /app/.venv/bin/provenance-api nltk-data /app/nltk_data
 
+# Drop what the service never loads: the libraries' own test suites (about
+# 66 MB, mostly SciPy, scikit-learn and NumPy), the zip archives NLTK has
+# already unpacked, and sentence-tokenizer models for languages other than English.
+RUN find /app/.venv -type d \( -name tests -o -name test \) -prune -exec rm -rf {} + \
+    && find /app/nltk_data -name '*.zip' -delete \
+    && find /app/nltk_data/tokenizers/punkt_tab -mindepth 1 -maxdepth 1 -type d \
+         ! -name english -exec rm -rf {} +
+
 
 # Runtime stage: only the virtualenv, NLTK data and migrations. No uv, no build tools.
 FROM python:3.12-slim
