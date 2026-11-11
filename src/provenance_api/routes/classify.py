@@ -1,11 +1,10 @@
 import hashlib
 
 from fastapi import APIRouter
-from fastapi.concurrency import run_in_threadpool
 
 from provenance_api.dependencies import (
     ApiKeyUser,
-    ClassifierDep,
+    InferenceDep,
     LimiterDep,
     SessionDep,
     SettingsDep,
@@ -37,7 +36,7 @@ router = APIRouter(prefix="/v1", tags=["classify"])
 async def classify(
     body: ClassifyRequest,
     user: ApiKeyUser,
-    classifier: ClassifierDep,
+    inference: InferenceDep,
     session: SessionDep,
     settings: SettingsDep,
     limiter: LimiterDep,
@@ -50,9 +49,9 @@ async def classify(
     # Charged here, after validation, so a rejected request costs no quota.
     await limiter.consume_quota(user.id, 1, settings.limits_for(user.plan))
 
-    # Feature extraction and scoring are CPU-bound. Running them here would
-    # block the event loop for every other request, so they go to a worker thread.
-    prediction = await run_in_threadpool(classifier.predict, body.text)
+    # Feature extraction and scoring are CPU-bound. Run here, they would block
+    # the event loop for every other request, so they go to the inference pool.
+    prediction = await inference.predict(body.text)
 
     record = PredictionRecord(
         user_id=user.id,

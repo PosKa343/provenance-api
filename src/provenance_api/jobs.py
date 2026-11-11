@@ -1,6 +1,5 @@
 """Scoring a batch job. Safe to run more than once for the same job."""
 
-import asyncio
 import hashlib
 import logging
 import uuid
@@ -10,8 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from provenance_api.inference import InferencePool
 from provenance_api.metrics import PREDICTIONS
-from provenance_api.ml.model import Classifier, Prediction
+from provenance_api.ml.model import Prediction
 from provenance_api.models import Job, JobStatus, PredictionRecord
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ CHUNK_SIZE = 10
 
 async def run_job(
     session_factory: async_sessionmaker[AsyncSession],
-    classifier: Classifier,
+    inference: InferencePool,
     job_id: uuid.UUID,
     texts: list[str],
 ) -> None:
@@ -54,19 +54,14 @@ async def run_job(
 
         for start in range(0, len(remaining), CHUNK_SIZE):
             positions = remaining[start : start + CHUNK_SIZE]
-            # CPU-bound, so it runs in a thread and the worker's event loop stays responsive.
-            predictions = await asyncio.to_thread(
-                _predict_all, classifier, [texts[position] for position in positions]
-            )
+            # CPU-bound, so it runs in the inference pool and the worker's
+            # event loop stays responsive.
+            predictions = await inference.predict_many([texts[p] for p in positions])
             await _save_chunk(session, job, positions, texts, predictions)
 
         job.status = JobStatus.SUCCEEDED
         job.finished_at = datetime.now(UTC)
         await session.commit()
-
-
-def _predict_all(classifier: Classifier, texts: list[str]) -> list[Prediction]:
-    return [classifier.predict(text) for text in texts]
 
 
 async def _save_chunk(

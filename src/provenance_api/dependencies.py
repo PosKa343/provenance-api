@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from provenance_api.billing import BillingGateway
 from provenance_api.config import Settings
 from provenance_api.errors import forbidden, unauthorized
+from provenance_api.inference import InferencePool
 from provenance_api.limits import Limiter
-from provenance_api.ml.model import Classifier
 from provenance_api.models import ApiKey, Role, User
 from provenance_api.security import InvalidTokenError, decode_access_token, hash_api_key
 
@@ -29,9 +29,9 @@ def get_settings(request: Request) -> Settings:
     return settings
 
 
-def get_classifier(request: Request) -> Classifier:
-    classifier: Classifier = request.app.state.classifier
-    return classifier
+def get_inference(request: Request) -> InferencePool:
+    inference: InferencePool = request.app.state.inference
+    return inference
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -55,7 +55,7 @@ def get_billing(request: Request) -> BillingGateway | None:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-ClassifierDep = Annotated[Classifier, Depends(get_classifier)]
+InferenceDep = Annotated[InferencePool, Depends(get_inference)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 QueueDep = Annotated[ArqRedis, Depends(get_queue)]
 LimiterDep = Annotated[Limiter, Depends(get_limiter)]

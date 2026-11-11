@@ -21,6 +21,10 @@ class BackendSettings(BaseSettings):
     database_url: str = "postgresql+asyncpg://provenance:provenance@localhost:5432/provenance"
     redis_url: str = "redis://localhost:6379"
 
+    # Worker processes that run the classifier, in the API and in the job
+    # worker alike. 0 runs it on one thread inside the process instead.
+    inference_workers: int = Field(default=2, ge=0)
+
     log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
     # The worker serves its own Prometheus metrics on this port. 0 turns that off.

@@ -12,9 +12,9 @@ from arq.worker import Worker, func
 
 from provenance_api.config import BackendSettings
 from provenance_api.db import create_engine, create_session_factory
+from provenance_api.inference import InferencePool
 from provenance_api.jobs import mark_failed, run_job
 from provenance_api.metrics import JOB_DURATION, JOBS_FINISHED
-from provenance_api.ml.model import Classifier
 
 job_log = structlog.get_logger(__name__)
 
@@ -57,7 +57,7 @@ async def score_job(ctx: dict[str, Any], job_id_text: str) -> None:
     started = time.perf_counter()
     status = "succeeded"
     try:
-        await run_job(session_factory, ctx["classifier"], job_id, texts)
+        await run_job(session_factory, ctx["inference"], job_id, texts)
     except Exception as error:
         # Log the error type only: its message could quote a submitted text.
         if attempt < settings.job_max_tries:
@@ -97,12 +97,14 @@ def create_worker(
     async def startup(ctx: dict[str, Any]) -> None:
         # Loaded once per worker process, like the API does at startup.
         ctx["settings"] = settings
-        ctx["classifier"] = Classifier.load()
+        ctx["inference"] = InferencePool(settings.inference_workers)
+        await ctx["inference"].warm_up()
         ctx["engine"] = create_engine(settings.database_url)
         ctx["session_factory"] = create_session_factory(ctx["engine"])
 
     async def shutdown(ctx: dict[str, Any]) -> None:
         await ctx["engine"].dispose()
+        ctx["inference"].close()
 
     return Worker(
         functions=[func(score_job, name=SCORE_JOB)],
