@@ -2,6 +2,7 @@ import os
 import signal
 from collections.abc import AsyncIterator
 
+import anyio
 import pytest
 
 from provenance_api.inference import InferencePool
@@ -50,10 +51,19 @@ async def test_prediction_really_runs_in_another_process(process_pool: Inference
 
 
 async def test_pool_recovers_after_a_worker_process_is_killed(process_pool: InferencePool) -> None:
-    victim = next(iter(process_pool._executor._processes))  # type: ignore[attr-defined]
-    os.kill(victim, signal.SIGKILL)
+    processes = process_pool._executor._processes  # type: ignore[attr-defined]
+    victim_pid, victim = next(iter(processes.items()))
+    os.kill(victim_pid, signal.SIGKILL)
+    await anyio.to_thread.run_sync(victim.join)
 
-    prediction = await process_pool.predict(TEXTS[0])
+    # The first call after the death may still be served by the surviving
+    # worker, before the pool has noticed. Every call must succeed either way,
+    # and the pool must end up without the dead process.
+    expected = Classifier.load().predict(TEXTS[0])
+    for _ in range(5):
+        assert await process_pool.predict(TEXTS[0]) == expected
+        await anyio.sleep(0.1)
 
-    assert prediction == Classifier.load().predict(TEXTS[0])
-    assert victim not in process_pool._executor._processes  # type: ignore[attr-defined]
+    current = process_pool._executor._processes  # type: ignore[attr-defined]
+    assert victim_pid not in current
+    assert len(current) >= 1
