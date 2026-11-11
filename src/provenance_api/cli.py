@@ -3,13 +3,15 @@
 import argparse
 import asyncio
 import json
-import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from prometheus_client import start_http_server
+
 from provenance_api.config import BackendSettings
 from provenance_api.db import create_engine, create_session_factory
+from provenance_api.logs import configure_logging
 from provenance_api.ml import nltk_data
 from provenance_api.ml.train import ARTIFACT_DIR, DEFAULT_DATASET, train, write_artifacts
 from provenance_api.models import Plan, Role
@@ -116,6 +118,10 @@ def _update_user(email: str, outcome: str, change: Any, value: Any) -> int:
 
 
 def _worker(args: argparse.Namespace) -> int:
-    logging.basicConfig(level=logging.INFO)
-    create_worker(BackendSettings()).run()
+    settings = BackendSettings()
+    configure_logging(settings.log_format, settings.log_level)
+    if settings.worker_metrics_port:
+        # The worker has no web server of its own, so Prometheus scrapes this one.
+        start_http_server(settings.worker_metrics_port)
+    create_worker(settings).run()
     return 0

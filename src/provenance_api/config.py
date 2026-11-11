@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,14 @@ class BackendSettings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://provenance:provenance@localhost:5432/provenance"
     redis_url: str = "redis://localhost:6379"
+
+    log_format: Literal["json", "console"] = "json"
+    log_level: str = "INFO"
+    # The worker serves its own Prometheus metrics on this port. 0 turns that off.
+    worker_metrics_port: int = 9100
+    # On shutdown the worker gives running jobs this long to finish before
+    # cancelling them. A cancelled job is picked up again later and resumes.
+    worker_shutdown_wait_seconds: int = 20
 
     # A batch job is attempted this many times before it is marked failed.
     job_max_tries: int = 3

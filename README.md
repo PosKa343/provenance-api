@@ -4,8 +4,8 @@ A Python service that will serve an AI-generated-text classifier behind an
 authenticated, rate-limited REST API with background batch jobs.
 
 **Status:** accounts, API keys, roles, `POST /v1/classify`, background batch
-jobs, rate limits, usage metering and Stripe billing (test mode only) work end
-to end with PostgreSQL and Redis.
+jobs, rate limits, usage metering, Stripe billing (test mode only), structured
+logs and Prometheus metrics work end to end with PostgreSQL and Redis.
 
 ## Quickstart
 
@@ -145,6 +145,36 @@ curl http://localhost:8000/v1/jobs \
 Known limits: if the API process dies between saving a job and queueing it,
 the job stays `queued`; if a worker is killed during its last attempt, the job
 stays `running`. Both need a periodic sweeper, which is not built yet.
+
+## Operations
+
+**Logs.** The API and the worker write one JSON object per line to stdout.
+Every line written while handling a request carries that request's
+`request_id`, which is also returned in the `X-Request-ID` header and in error
+bodies, so a user's error report leads straight to the log lines. A caller may
+send its own `X-Request-ID`. Worker lines carry the `job_id`. Request bodies and
+submitted texts are never logged. Set `PROVENANCE_LOG_FORMAT=console` for
+plain text while developing.
+
+**Endpoints.**
+
+| Endpoint | Answers | Checks |
+|---|---|---|
+| `GET /healthz` | Is the process alive? | Nothing else, on purpose: a database outage should not get healthy API processes restarted |
+| `GET /readyz` | Can it serve requests now? | Model loaded, PostgreSQL and Redis reachable. 503 names what is down |
+| `GET /metrics` | Prometheus metrics | |
+
+**Metrics.** The API serves `http_request_duration_seconds` (by method, route
+template and status), `predictions_total` and `job_queue_depth`. The worker is
+a separate process and serves its own on port 9100: `jobs_finished_total`,
+`job_duration_seconds` and its `predictions_total`. `/metrics` has no
+authentication, so keep it off the public internet. Each container runs one
+process; running several per container would need Prometheus's multiprocess mode.
+
+**Shutdown.** On `SIGTERM` the API stops accepting connections, lets requests
+in flight finish (up to 20 seconds), then closes its database and Redis
+connections. The worker gives running jobs 20 seconds to finish; a job cut off
+after that is picked up again later and resumes where it stopped.
 
 ## Authentication
 

@@ -54,8 +54,11 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    # Longer than the server's own 20-second drain, so Docker never cuts it short.
+    stop_grace_period: 30s
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      # Readiness, not liveness: the API is healthy for compose once it can reach its dependencies.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -65,6 +68,9 @@ services:
     build: .
     command: ["provenance-api", "worker"]
     environment: *app_environment
+    ports:
+      - "127.0.0.1:9100:9100"  # the worker's Prometheus metrics
+    stop_grace_period: 30s
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -1,17 +1,15 @@
 """Every error leaves the API in one shape: {"error": {"code", "message", "request_id"}}."""
 
 import logging
-import uuid
-from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from provenance_api.observability import REQUEST_ID_HEADER
 from provenance_api.schemas import ErrorBody, ErrorEnvelope
 
-REQUEST_ID_HEADER = "X-Request-ID"
 logger = logging.getLogger(__name__)
 
 _CODES_BY_STATUS = {
@@ -71,15 +69,6 @@ def _error_response(
     )
 
 
-async def _attach_request_id(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    request.state.request_id = uuid.uuid4().hex
-    response = await call_next(request)
-    response.headers[REQUEST_ID_HEADER] = _request_id(request)
-    return response
-
-
 async def _handle_api_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, ApiError)  # noqa: S101 - narrows the type for mypy
     return _error_response(request, exc.status_code, exc.code, exc.message, exc.headers)
@@ -99,12 +88,11 @@ async def _handle_validation_error(request: Request, exc: Exception) -> JSONResp
 
 
 async def _handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled error", extra={"request_id": _request_id(request)})
+    logger.exception("Unhandled error")
     return _error_response(request, 500, "internal_error", "Internal server error.")
 
 
 def install_error_handling(app: FastAPI) -> None:
-    app.middleware("http")(_attach_request_id)
     app.add_exception_handler(ApiError, _handle_api_error)
     app.add_exception_handler(StarletteHTTPException, _handle_http_exception)
     app.add_exception_handler(RequestValidationError, _handle_validation_error)

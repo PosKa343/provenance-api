@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from provenance_api.metrics import PREDICTIONS
 from provenance_api.ml.model import Classifier, Prediction
 from provenance_api.models import Job, JobStatus, PredictionRecord
 
@@ -89,11 +90,15 @@ async def _save_chunk(
         for position, prediction in zip(positions, predictions, strict=True)
     ]
     # If another run already stored a position, keep that row and move on.
-    await session.execute(
+    stored = await session.execute(
         insert(PredictionRecord)
         .values(rows)
         .on_conflict_do_nothing(constraint="uq_predictions_job_id_position")
+        .returning(PredictionRecord.label)
     )
+    # Counted from what was actually inserted, so a re-run does not count a text twice.
+    for label in stored.scalars():
+        PREDICTIONS.labels(label, "batch").inc()
     # Counted from the table, not incremented, so it stays right across re-runs.
     job.processed = (
         await session.execute(

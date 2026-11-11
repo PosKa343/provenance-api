@@ -58,6 +58,25 @@ jobs:
         run: |
           count=$(docker compose exec -T postgres psql -U provenance -d provenance -tAc 'SELECT count(*) FROM predictions')
           test "$count" = "3"
+      - name: Check readiness, metrics and structured logs
+        run: |
+          curl --silent --fail http://localhost:8000/readyz
+          curl --silent --fail http://localhost:8000/metrics | grep --quiet 'http_request_duration_seconds_count{method="POST",route="/v1/classify",status="200"}'
+          curl --silent --fail http://localhost:9100/metrics | grep --quiet 'jobs_finished_total{status="succeeded"} 1.0'
+          # Every line the API and worker wrote must be a JSON object.
+          docker compose logs api worker --no-log-prefix | python3 -c "
+          import json, sys
+          lines = [line for line in sys.stdin if line.strip()]
+          events = [json.loads(line) for line in lines]
+          assert any(e.get('event') == 'request' and 'request_id' in e for e in events), 'no access log line'
+          assert any('job_id' in e for e in events), 'no worker line tagged with a job id'
+          print(len(events), 'log lines, all JSON')
+          "
+      - name: Check the API shuts down cleanly on SIGTERM
+        run: |
+          docker compose stop api
+          docker compose logs api --no-log-prefix | grep --quiet 'Application shutdown complete.'
+          docker compose start api
       - name: Check the container does not run as root
         run: test "$(docker compose exec -T api id -u)" != "0"
       - name: Logs on failure
