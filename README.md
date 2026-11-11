@@ -292,7 +292,8 @@ Limits:
 - The data has one source per class (Wikipedia for human, Gemini Flash for
   AI), so the model may have learned those two styles and nothing more
   general. The accuracy above says nothing about other kinds of text.
-- Training texts were 300 to 1000 words long. Several features are raw counts,
+- Training texts were 27 to 1,325 words long (median 293). Several features
+  are raw counts,
   so scores for much shorter or longer texts are not trustworthy.
 
 ## License

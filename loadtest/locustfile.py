@@ -11,8 +11,8 @@ DATASET = Path(__file__).parent.parent / "data" / "ai_detection_dataset.csv"
 
 
 def _texts() -> list[str]:
-    # All 632 dataset texts (Wikipedia extracts and Gemini outputs, 300 to 1000
-    # words each), the kind of text the model was trained on. Latency depends
+    # All 632 dataset texts (Wikipedia extracts and Gemini outputs, 27 to 1,325
+    # words, median 293), the texts the model was trained on. Latency depends
     # on text length, and sending one text over and over would let caches hide
     # the real cost, so every request sends a different one.
     with DATASET.open(newline="", encoding="utf-8") as handle:
